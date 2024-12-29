@@ -3,53 +3,62 @@
 
 #include "common.h"
 
-#define GLYPH_LOOKUP_BUFFER_SIZE (256*sizeof(GlyphLookup))
-#define FONT_ATLAS_SIZE 1024
+typedef enum FontSize {
+    FontSize_10, FontSize_12, FontSize_14, FontSize_16,
+    FontSize_20, FontSize_24, FontSize_28, FontSize_32,
+    FontSize_40, FontSize_48, FontSize_56, FontSize_64,
+    FontSize_96, FontSize_128,
 
-// all abstracted away - truetype used on unix, something else will be on windows
+    FontSize_Count,
+} FontSize;
 
-typedef struct FontBackend FontBackend;
-
-typedef struct {
-    F32 size;
-    F32 scale_factor;
-    const char *ttf_path;
-} FontAtlasConfig;
+static const F32 font_size_px[FontSize_Count] = {
+    10.f, 12.f, 14.f, 16.f,
+    20.f, 24.f, 28.f, 32.f,
+    40.f, 48.f, 56.f, 64.f,
+    96.f, 128.f
+};
 
 typedef struct Glyph {
-    F32 x;
-    F32 y;
+    F32 x, y;
     U32 glyph_idx;
-    U32 unused;
+    RGBA8 colour;
 } Glyph;
 
 typedef struct {
-    U32 x;      // offset into lookup_buffer
-    U32 y;      // offset into lookup_buffer
-    U32 width;  // width of glyph row
-    U32 height; // height of glyph (number of rows)
-} GlyphLookup;
+    U32 x, y;
+    U32 width;
+    U32 height;
+} AtlasLocation;
 
-// 8x8
+typedef struct {
+    I32 offset_x, offset_y;
+    I32 advance_width;
+    I32 unused;
+} GlyphKerning;
+
 typedef struct {
     VkImage atlas_image;
     VkDeviceMemory atlas_image_memory;
     VkImageView atlas_image_view;
 
+    // TODO
+    //GlyphKerning *(kerning[256][FontSize_Count]);
+
+    // gpu buffer of AtlasLocation[256][FontSize].
     VkBuffer glyph_lookup_buffer;
     VkDeviceMemory glyph_lookup_buffer_memory;
 } FontAtlas;
 
-FontBackend *
-font_backend_create(W *w, Arena *arena);
-
-void
-font_backend_destroy(FontBackend *backend);
+static inline U32
+glyph_lookup_idx(FontSize font_size, char ch) {
+    return (U32)font_size * 256u + (U32)ch;
+}
 
 FontAtlas *
-font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg);
+font_atlas_create(W *w, Arena *arena, const char *ttf);
 
 void
-font_atlas_destroy(FontBackend *backend, FontAtlas *atlas);
+font_atlas_destroy(W *w, FontAtlas *atlas);
 
 #endif

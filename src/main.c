@@ -14,7 +14,7 @@
 #define STAGING_BUFFER_SIZE (64*MB)
 #define SURFACE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define SURFACE_COLOUR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-#define SURFACE_PRESENT_MODE VK_PRESENT_MODE_FIFO_RELAXED_KHR
+#define SURFACE_PRESENT_MODE VK_PRESENT_MODE_FIFO_KHR
 
 typedef struct {
     VkRenderPass pass;
@@ -845,14 +845,13 @@ void staging_buffer_reset(StagingBuffer *staging_buffer) {
 
 // MAIN #####################################################
 
-static const Glyph glyphs[] = {
-    { .x = 0.1f, .y = 0.2f, .glyph_idx = 'A' },
-    { .x = 0.3f, .y = 0.3f, .glyph_idx = 'B' },
-    { .x = 0.5f, .y = 0.4f, .glyph_idx = 'C' }
-};
+#define SIZE_X FontSize_Count
+#define SIZE_Y 5*2
 
 int main(void) {
     Arena static_arena = arena_create_sized(1ull << 30); // 1 GB, virtual allocated
+                                                         //
+    Glyph glyphs[SIZE_X * SIZE_Y];
 
     // gltf window and vulkan ------------------------------------------
 
@@ -862,9 +861,7 @@ int main(void) {
     // font atlas ------------------------------------------
 
     const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Medium.ttf";
-    FontBackend *backend = font_backend_create(&w, &static_arena);
-    FontAtlasConfig font_cfg = { .size = 32.0, .scale_factor = 1.0, .ttf_path = ttf_path };
-    FontAtlas *font_atlas = font_atlas_create(backend, &font_cfg);
+    FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
 
     // glyph draw buffer -----------------------------------
 
@@ -876,31 +873,13 @@ int main(void) {
             .size = sizeof(glyphs),
             .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         };
-        VK_ASSERT(vkCreateBuffer(backend->w->device, &info, NULL, &glyph_draw_buffer));
+        VK_ASSERT(vkCreateBuffer(w.device, &info, NULL, &glyph_draw_buffer));
         VK_ASSERT(gpu_alloc_buffer(
-            backend->w,
+            &w,
             glyph_draw_buffer,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &glyph_draw_buffer_memory
         ));
-
-        Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, sizeof(glyphs), 16);
-        memcpy(staging_glyph_draws, glyphs, sizeof(glyphs));
-
-        VkBufferCopy *buffer_copy = ARENA_ALLOC(&w.frame_arena, *buffer_copy);
-        *buffer_copy = (VkBufferCopy) {
-            .srcOffset = (U64)((U8*)staging_glyph_draws - w.staging_buffer.mapped_ptr),
-            .dstOffset = 0,
-            .size = sizeof(glyphs),
-        };
-
-        staging_buffer_cmd_copy_to_buffer(
-            &w.staging_buffer,
-            &w.frame_arena,
-            glyph_draw_buffer,
-            1,
-            buffer_copy
-        );
     }
 
     // descriptor set --------------------------------------
@@ -968,11 +947,45 @@ int main(void) {
         vkUpdateDescriptorSets(w.device, write_count, descriptor_writes, 0, NULL);
     }
 
+        for (I64 y = 0; y < SIZE_Y; ++y) {
+            for (I64 x = 0; x < SIZE_X; ++x) {
+                I64 i = y*SIZE_X + x;
+                glyphs[i] = (Glyph) {
+                    .x = ((F32)x * 40.0f) / 800.0f,
+                    .y = ((F32)y * 40.0f) / 800.0f,
+                    .glyph_idx = glyph_lookup_idx(x % FontSize_Count, 'a'),
+                    .colour = { 255, 255, 0, 255 },
+                };
+            }
+        }
+
+        // write glyphs buffer
+        {
+            Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, sizeof(glyphs), 16);
+            memcpy(staging_glyph_draws, glyphs, sizeof(glyphs));
+
+            VkBufferCopy *buffer_copy = ARENA_ALLOC(&w.frame_arena, *buffer_copy);
+            *buffer_copy = (VkBufferCopy) {
+                .srcOffset = (U64)((U8*)staging_glyph_draws - w.staging_buffer.mapped_ptr),
+                .dstOffset = 0,
+                .size = sizeof(glyphs),
+            };
+
+            staging_buffer_cmd_copy_to_buffer(
+                &w.staging_buffer,
+                &w.frame_arena,
+                glyph_draw_buffer,
+                1,
+                buffer_copy
+            );
+        }
+
+
+    F32 frame = 0.0;
     while (!glfwWindowShouldClose(w.window)) {
         glfwPollEvents();
 
         // UPDATE ----------------------------------------------------------------
-        // todo
 
         // WAIT FOR NEXT FRAME ---------------------------------------------------
 
@@ -1184,6 +1197,7 @@ int main(void) {
 
         arena_clear(&w.frame_arena);
         staging_buffer_reset(&w.staging_buffer);
+        frame += 1.0f;
     }
 
     VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
@@ -1193,8 +1207,7 @@ int main(void) {
 
     vkFreeDescriptorSets(w.device, w.descriptor_pool, 1, &descriptor_set);
     pipeline_destroy(&w, &pl);
-    font_atlas_destroy(backend, font_atlas);
-    font_backend_destroy(backend);
+    font_atlas_destroy(&w, font_atlas);
     window_destroy(&w);
     arena_destroy(&static_arena);
     return 0;

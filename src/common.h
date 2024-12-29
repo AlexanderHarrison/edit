@@ -17,6 +17,10 @@
 #define arena_reset(A, B) arena_reset_safe(A, B)
 #endif
 
+typedef struct RGBA8 {
+    U8 r, g, b, a;
+} RGBA8;
+
 typedef struct StagingCopyBufferList {
     struct StagingCopyBufferList *next;
     VkBuffer target_buffer;

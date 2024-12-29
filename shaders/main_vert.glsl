@@ -1,12 +1,5 @@
 #version 450
 
-vec4 colours[4] = vec4[](
-    vec4(1.0, 0.0, 0.0, 1.0),
-    vec4(0.0, 1.0, 0.0, 1.0),
-    vec4(0.0, 0.0, 1.0, 1.0),
-    vec4(0.0, 0.7, 0.7, 1.0)
-);
-
 struct GlyphLoc {
     uvec2 offset;
     uvec2 size;
@@ -15,7 +8,7 @@ struct GlyphLoc {
 struct Glyph {
     vec2 position;
     uint glyph_idx;
-    uint unused;
+    uint colour;
 };
 
 layout(set = 0, binding = 1) readonly buffer glyph_locations_SSBO { GlyphLoc glyph_locations[]; };
@@ -33,5 +26,12 @@ void main() {
 
     vec2 dims = vec2(glyph_loc.size) / 800.0;
     gl_Position = vec4((uv * dims + glyph.position) * 2.0 - 1.0, 0.0, 1.0);
-    frag_colour = colours[gl_VertexIndex];
+
+    uint colour_packed = glyph.colour;
+    frag_colour = vec4(
+        float((colour_packed >> 24) & 0xFFu), // R
+        float((colour_packed >> 16) & 0xFFu), // G
+        float((colour_packed >> 8) & 0xFFu),  // B
+        float(colour_packed & 0xFFu)          // A
+    ) / 255.0;
 }

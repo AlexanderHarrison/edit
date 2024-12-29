@@ -9,7 +9,7 @@ WARN_FLAGS := -Wall -Wextra -Wpedantic -Wuninitialized -Wcast-qual -Wdisabled-op
 PATH_FLAGS_FT := -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include/harfbuzz -I/usr/include/glib-2.0 -I/usr/lib/glib-2.0/include -I/usr/include/sysprof-6
 
 PATH_FLAGS := $(PATH_FLAGS_FT)
-LINK_FLAGS := -lfreetype -lglfw -lvulkan -ldl -pthread -lX11 -lXxf86vm -lXrandr -lXi
+LINK_FLAGS := -lfreetype -lglfw -lvulkan -ldl -pthread -lX11 -lXxf86vm -lXrandr -lXi -lm
 
 SAN_FLAGS := -fsanitize=undefined -fsanitize=address 
 
@@ -20,14 +20,14 @@ build/main_frag.spv: shaders/main_frag.glsl
 build/main_vert.spv: shaders/main_vert.glsl
 	glslc -fshader-stage=vert shaders/main_vert.glsl -O -o build/main_vert.spv
 
-build/edit: build/main_vert.spv build/main_frag.spv src/main.c src/font.c
+build/edit: build/main_vert.spv build/main_frag.spv src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
 
 build: build/edit
 run: build/edit
 	./$(OUT)
 
-san: build/main_vert.spv build/main_frag.spv src/main.c
+san: build/main_vert.spv build/main_frag.spv src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(SAN_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
 	./$(OUT)
 
