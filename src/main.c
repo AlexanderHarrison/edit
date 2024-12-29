@@ -14,7 +14,7 @@
 #define STAGING_BUFFER_SIZE (64*MB)
 #define SURFACE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define SURFACE_COLOUR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-#define SURFACE_PRESENT_MODE VK_PRESENT_MODE_FIFO_KHR
+#define SURFACE_PRESENT_MODE VK_PRESENT_MODE_FIFO_RELAXED_KHR
 
 typedef struct {
     VkRenderPass pass;
@@ -797,27 +797,29 @@ U8 *staging_buffer_alloc(StagingBuffer *staging_buffer, U64 size, U64 alignment)
     return alloc_start;
 }
 
-void staging_buffer_push_copy_cmd_to_buffer(
+void staging_buffer_cmd_copy_to_buffer(
     StagingBuffer *staging_buffer,
     Arena *arena,
     VkBuffer target,
-    VkBufferCopy *buffer_copy
+    U32 copy_count,
+    VkBufferCopy *buffer_copies // MUST POINT TO FRAME ARENA
 ) {
     StagingCopyBufferList *prev = staging_buffer->staging_copies_buffer;
     StagingCopyBufferList *new = ARENA_ALLOC(arena, *new);
-    *new = (StagingCopyBufferList) { prev, target, *buffer_copy };
+    *new = (StagingCopyBufferList) { prev, target, copy_count, buffer_copies };
     staging_buffer->staging_copies_buffer = new;
 }
 
-void staging_buffer_push_copy_cmd_to_image(
+void staging_buffer_cmd_copy_to_image(
     StagingBuffer *staging_buffer,
     Arena *arena,
     VkImage target,
-    VkBufferImageCopy *buffer_image_copy
+    U32 copy_count,
+    VkBufferImageCopy *buffer_image_copies // MUST POINT TO FRAME ARENA
 ) {
     StagingCopyImageList *prev = staging_buffer->staging_copies_image;
     StagingCopyImageList *new = ARENA_ALLOC(arena, *new);
-    *new = (StagingCopyImageList) { prev, target, *buffer_image_copy };
+    *new = (StagingCopyImageList) { prev, target, copy_count, buffer_image_copies };
     staging_buffer->staging_copies_image = new;
 }
 
@@ -844,9 +846,9 @@ void staging_buffer_reset(StagingBuffer *staging_buffer) {
 // MAIN #####################################################
 
 static const Glyph glyphs[] = {
-    { .x = 0.4f, .y = 0.2f, .glyph_idx = 'A' },
-    { .x = 0.5f, .y = 0.2f, .glyph_idx = 'B' },
-    { .x = 0.6f, .y = 0.2f, .glyph_idx = 'C' }
+    { .x = 0.1f, .y = 0.2f, .glyph_idx = 'A' },
+    { .x = 0.3f, .y = 0.3f, .glyph_idx = 'B' },
+    { .x = 0.5f, .y = 0.4f, .glyph_idx = 'C' }
 };
 
 int main(void) {
@@ -861,7 +863,7 @@ int main(void) {
 
     const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Medium.ttf";
     FontBackend *backend = font_backend_create(&w, &static_arena);
-    FontAtlasConfig font_cfg = { .size = 16.0, .scale_factor = 1.0, .ttf_path = ttf_path };
+    FontAtlasConfig font_cfg = { .size = 32.0, .scale_factor = 1.0, .ttf_path = ttf_path };
     FontAtlas *font_atlas = font_atlas_create(backend, &font_cfg);
 
     // glyph draw buffer -----------------------------------
@@ -885,17 +887,19 @@ int main(void) {
         Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, sizeof(glyphs), 16);
         memcpy(staging_glyph_draws, glyphs, sizeof(glyphs));
 
-        VkBufferCopy buffer_copy = {
+        VkBufferCopy *buffer_copy = ARENA_ALLOC(&w.frame_arena, *buffer_copy);
+        *buffer_copy = (VkBufferCopy) {
             .srcOffset = (U64)((U8*)staging_glyph_draws - w.staging_buffer.mapped_ptr),
             .dstOffset = 0,
             .size = sizeof(glyphs),
         };
 
-        staging_buffer_push_copy_cmd_to_buffer(
+        staging_buffer_cmd_copy_to_buffer(
             &w.staging_buffer,
             &w.frame_arena,
             glyph_draw_buffer,
-            &buffer_copy
+            1,
+            buffer_copy
         );
     }
 
@@ -1047,29 +1051,30 @@ int main(void) {
 
             StagingCopyBufferList *copy_b = w.staging_buffer.staging_copies_buffer;
             for (; copy_b != NULL; copy_b = copy_b->next) {
-                copy_count++;
+                if (copy_b->copy_count == 0) continue;
+                copy_count += copy_b->copy_count;
 
                 vkCmdCopyBuffer(
                     w.cmd_buffer,
                     w.staging_buffer.buffer,
                     copy_b->target_buffer,
-                    1,
-                    &copy_b->location
+                    copy_b->copy_count,
+                    copy_b->buffer_copies
                 );
             }
 
             StagingCopyImageList *copy_i = w.staging_buffer.staging_copies_image;
             for (; copy_i != NULL; copy_i = copy_i->next) {
-                copy_count++;
-
+                if (copy_i->copy_count == 0) continue;
+                copy_count += copy_i->copy_count;
 
                 vkCmdCopyBufferToImage(
                     w.cmd_buffer,
                     w.staging_buffer.buffer,
                     copy_i->target_image,
                     VK_IMAGE_LAYOUT_GENERAL,
-                    1,
-                    &copy_i->location
+                    copy_i->copy_count,
+                    copy_i->buffer_image_copies
                 );
             }
 

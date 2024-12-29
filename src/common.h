@@ -20,13 +20,15 @@
 typedef struct StagingCopyBufferList {
     struct StagingCopyBufferList *next;
     VkBuffer target_buffer;
-    VkBufferCopy location;
+    U32 copy_count;
+    VkBufferCopy *buffer_copies;
 } StagingCopyBufferList;
 
 typedef struct StagingCopyImageList {
     struct StagingCopyImageList *next;
     VkImage target_image;
-    VkBufferImageCopy location;
+    U32 copy_count;
+    VkBufferImageCopy *buffer_image_copies;
 } StagingCopyImageList;
 
 typedef struct ImageTransitionList {
@@ -106,19 +108,20 @@ U8 *
 staging_buffer_alloc(StagingBuffer *staging_buffer, U64 size, U64 alignment);
 
 void
-staging_buffer_push_copy_cmd_to_buffer(
+staging_buffer_cmd_copy_to_buffer(
     StagingBuffer *staging_buffer,
     Arena *arena,
     VkBuffer target,
-    VkBufferCopy *buffer_copy
+    U32 copy_count,
+    VkBufferCopy *buffer_copies // MUST POINT TO FRAME ARENA
 );
 
-void
-staging_buffer_push_copy_cmd_to_image(
+void staging_buffer_cmd_copy_to_image(
     StagingBuffer *staging_buffer,
     Arena *arena,
     VkImage target,
-    VkBufferImageCopy *buffer_image_copy
+    U32 copy_count,
+    VkBufferImageCopy *buffer_image_copies // MUST POINT TO FRAME ARENA
 );
 
 void

@@ -32,6 +32,6 @@ void main() {
     glyph_uv = uv * vec2(glyph_loc.size) + vec2(glyph_loc.offset);
 
     vec2 dims = vec2(glyph_loc.size) / 800.0;
-    gl_Position = vec4(uv * dims + glyph.position, 0.0, 1.0);
+    gl_Position = vec4((uv * dims + glyph.position) * 2.0 - 1.0, 0.0, 1.0);
     frag_colour = colours[gl_VertexIndex];
 }

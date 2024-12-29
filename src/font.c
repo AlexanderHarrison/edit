@@ -106,8 +106,7 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
         assert(FT_New_Face(backend->library, cfg->ttf_path, 0, &face) == 0);
 
         // TODO: more robust scale factor calculation
-        //assert(FT_Set_Char_Size(face, 0, (I64)(cfg->size/16.0f), 0, (U32)(cfg->scale_factor*72.0f)) == 0);
-        assert(FT_Set_Char_Size(face, 0, 70 * 64, 96, 96) == 0);
+        assert(FT_Set_Char_Size(face, 0, (I64)(cfg->size * 64), 0, (U32)(cfg->scale_factor*72.0f)) == 0);
     }
 
     // WRITE GLYPHS TO BUFFER --------------------------------------------------------
@@ -116,6 +115,9 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
         StagingBuffer *staging = &backend->w->staging_buffer;
 
         GlyphLookup* staging_glyph_lookup = (GlyphLookup*)staging_buffer_alloc(staging, GLYPH_LOOKUP_BUFFER_SIZE, 16);
+
+        U32 copies = 0;
+        VkBufferImageCopy* buffer_image_copies = ARENA_ALLOC_ARRAY(&backend->w->frame_arena, *buffer_image_copies, 256);
 
         U64 image_suballocator_x = 0;
         U64 image_suballocator_y = 0;
@@ -177,7 +179,7 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
                 .height = bitmap->rows,
             };
 
-            VkBufferImageCopy buffer_image_copy = {
+            buffer_image_copies[copies++] = (VkBufferImageCopy) {
                 .bufferOffset = (U64)((U8*)staging_image - staging->mapped_ptr),
                 .bufferRowLength = (U32)bitmap->pitch,
                 .bufferImageHeight = bitmap->rows,
@@ -198,26 +200,29 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
                     .depth = 1,
                 },
             };
-
-            staging_buffer_push_copy_cmd_to_image(
-                staging,
-                &backend->w->frame_arena,
-                atlas->atlas_image,
-                &buffer_image_copy
-            );
         }
 
-        VkBufferCopy buffer_copy = {
+        staging_buffer_cmd_copy_to_image(
+            staging,
+            &backend->w->frame_arena,
+            atlas->atlas_image,
+            copies,
+            buffer_image_copies
+        );
+
+        VkBufferCopy *buffer_copy = ARENA_ALLOC(&backend->w->frame_arena, *buffer_copy);
+        *buffer_copy = (VkBufferCopy) {
             .srcOffset = (U64)((U8*)staging_glyph_lookup - staging->mapped_ptr),
             .dstOffset = 0,
             .size = GLYPH_LOOKUP_BUFFER_SIZE,
         };
 
-        staging_buffer_push_copy_cmd_to_buffer(
+        staging_buffer_cmd_copy_to_buffer(
             staging,
             &backend->w->frame_arena,
             atlas->glyph_lookup_buffer,
-            &buffer_copy
+            1,
+            buffer_copy
         );
     }
 
