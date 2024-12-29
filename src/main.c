@@ -844,7 +844,9 @@ void staging_buffer_reset(StagingBuffer *staging_buffer) {
 // MAIN #####################################################
 
 static const Glyph glyphs[] = {
-    { .x = 0.4f, .y = 0.2f, .glyph_idx = 'A' }
+    { .x = 0.4f, .y = 0.2f, .glyph_idx = 'A' },
+    { .x = 0.5f, .y = 0.2f, .glyph_idx = 'B' },
+    { .x = 0.6f, .y = 0.2f, .glyph_idx = 'C' }
 };
 
 int main(void) {
@@ -884,7 +886,7 @@ int main(void) {
         memcpy(staging_glyph_draws, glyphs, sizeof(glyphs));
 
         VkBufferCopy buffer_copy = {
-            .srcOffset = 0,
+            .srcOffset = (U64)((U8*)staging_glyph_draws - w.staging_buffer.mapped_ptr),
             .dstOffset = 0,
             .size = sizeof(glyphs),
         };

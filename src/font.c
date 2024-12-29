@@ -107,7 +107,7 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
 
         // TODO: more robust scale factor calculation
         //assert(FT_Set_Char_Size(face, 0, (I64)(cfg->size/16.0f), 0, (U32)(cfg->scale_factor*72.0f)) == 0);
-        assert(FT_Set_Char_Size(face, 0, 10 * 64, 96, 96) == 0);
+        assert(FT_Set_Char_Size(face, 0, 70 * 64, 96, 96) == 0);
     }
 
     // WRITE GLYPHS TO BUFFER --------------------------------------------------------

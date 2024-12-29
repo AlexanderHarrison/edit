@@ -15,10 +15,10 @@ SAN_FLAGS := -fsanitize=undefined -fsanitize=address
 
 export GCC_COLORS = warning=01;33
 
-build/main_frag.spv: shaders/main_frag.hlsl shaders/common.hlsl
-	glslc -fshader-stage=frag shaders/main_frag.hlsl -O -o build/main_frag.spv
-build/main_vert.spv: shaders/main_vert.hlsl shaders/common.hlsl
-	glslc -fshader-stage=vert shaders/main_vert.hlsl -O -o build/main_vert.spv
+build/main_frag.spv: shaders/main_frag.glsl
+	glslc -fshader-stage=frag shaders/main_frag.glsl -O -o build/main_frag.spv
+build/main_vert.spv: shaders/main_vert.glsl
+	glslc -fshader-stage=vert shaders/main_vert.glsl -O -o build/main_vert.spv
 
 build/edit: build/main_vert.spv build/main_frag.spv src/main.c src/font.c
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
