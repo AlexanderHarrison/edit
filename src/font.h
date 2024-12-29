@@ -16,6 +16,13 @@ typedef struct {
     const char *ttf_path;
 } FontAtlasConfig;
 
+typedef struct Glyph {
+    F32 x;
+    F32 y;
+    U32 glyph_idx;
+    U32 unused;
+} Glyph;
+
 typedef struct {
     U32 x;      // offset into lookup_buffer
     U32 y;      // offset into lookup_buffer

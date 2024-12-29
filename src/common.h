@@ -29,6 +29,13 @@ typedef struct StagingCopyImageList {
     VkBufferImageCopy location;
 } StagingCopyImageList;
 
+typedef struct ImageTransitionList {
+    struct ImageTransitionList *next;
+    VkImage target_image;
+    VkImageLayout old_layout;
+    VkImageLayout new_layout;
+} ImageTransitionList;
+
 typedef struct {
     VkBuffer buffer;
     VkDeviceMemory buffer_memory;
@@ -37,6 +44,7 @@ typedef struct {
 
     StagingCopyBufferList *staging_copies_buffer;
     StagingCopyImageList *staging_copies_image;
+    ImageTransitionList *image_transitions;
 } StagingBuffer;
 
 typedef struct {
@@ -63,6 +71,8 @@ typedef struct {
     VkSemaphore image_available;
     VkSemaphore render_finished;
     VkFence in_flight;
+
+    VkDescriptorPool descriptor_pool;
 
     // PER FRAME DATA -------------------------------
 
@@ -109,6 +119,15 @@ staging_buffer_push_copy_cmd_to_image(
     Arena *arena,
     VkImage target,
     VkBufferImageCopy *buffer_image_copy
+);
+
+void
+staging_buffer_push_image_transition(
+    StagingBuffer *staging_buffer,
+    Arena *arena,
+    VkImage target,
+    VkImageLayout old_layout,
+    VkImageLayout new_layout
 );
 
 void

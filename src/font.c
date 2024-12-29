@@ -14,8 +14,7 @@ struct FontBackend {
 
 FontBackend *font_backend_create(W *w, Arena *arena) {
     FontBackend *backend = ARENA_ALLOC(arena, *backend);
-    backend->w = w;
-    backend->arena = arena;
+    *backend = (FontBackend) { .w = w, .arena = arena, };
     assert(FT_Init_FreeType(&backend->library) == 0);
     return backend;
 }
@@ -74,6 +73,14 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
             NULL,
             &atlas->atlas_image_view
         ));
+
+        staging_buffer_push_image_transition(
+            &backend->w->staging_buffer,
+            &backend->w->frame_arena,
+            atlas->atlas_image,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_GENERAL
+        );
     }
 
     // CREATE VK GLYPH LOOKUP BUFFER -------------------------------------------------
@@ -99,7 +106,8 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
         assert(FT_New_Face(backend->library, cfg->ttf_path, 0, &face) == 0);
 
         // TODO: more robust scale factor calculation
-        assert(FT_Set_Char_Size(face, 0, (I64)(cfg->size/16.0f), 0, (U32)(cfg->scale_factor*72.0f)) == 0);
+        //assert(FT_Set_Char_Size(face, 0, (I64)(cfg->size/16.0f), 0, (U32)(cfg->scale_factor*72.0f)) == 0);
+        assert(FT_Set_Char_Size(face, 0, 10 * 64, 96, 96) == 0);
     }
 
     // WRITE GLYPHS TO BUFFER --------------------------------------------------------
@@ -117,14 +125,21 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
             // create glyph bitmap ----------------
             FT_Bitmap *bitmap;
             {
-                U64 glyph_idx = FT_Get_Char_Index(face, ch);
-                assert(FT_Load_Char(face, glyph_idx, FT_LOAD_RENDER | FT_LOAD_MONOCHROME) == 0);
+                assert(FT_Load_Char(face, ch, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL) == 0);
                 FT_GlyphSlot glyph = face->glyph;
                 assert(glyph != NULL);
-                assert(glyph->format == FT_GLYPH_FORMAT_BITMAP);
-                assert(glyph->bitmap.pitch > 0);
+                //assert(glyph->format == FT_GLYPH_FORMAT_);
 
                 bitmap = &glyph->bitmap;
+
+                if (bitmap->width * bitmap->rows == 0) {
+                    staging_glyph_lookup[ch] = (GlyphLookup) {0};
+                    continue;
+                }
+
+                assert(bitmap->pitch > 0);
+                //assert(glyph->bitmap.width > 1);
+                //printf("width %u height %u\n", glyph->bitmap.width, glyph->bitmap.height);
             }
 
             // copy glyph to staging ----------------
@@ -175,10 +190,12 @@ FontAtlas *font_atlas_create(FontBackend *backend, FontAtlasConfig *cfg) {
                 .imageOffset = {
                     .x = (I32)extent_x,
                     .y = (I32)extent_y,
+                    .z = 0,
                 },
                 .imageExtent = {
                     .width = bitmap->width,
                     .height = bitmap->rows,
+                    .depth = 1,
                 },
             };
 

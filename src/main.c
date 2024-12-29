@@ -1,5 +1,7 @@
 #include "common.h"
+
 #include "font.h"
+#include "font.c"
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -18,12 +20,13 @@ typedef struct {
     VkRenderPass pass;
     VkFramebuffer* sc_framebuffers;
 
+    VkDescriptorSetLayout descriptor_set_layout;
     VkPipelineLayout pl_layout;
     VkPipeline pl;
 } Pipeline;
 
 W
-window_init(Arena *arena);
+window_create(Arena *arena);
 
 void
 window_destroy(W *w);
@@ -37,8 +40,9 @@ pipeline_destroy(W *w, Pipeline *p);
 int
 main(void);
 
+// WINDOWING FUNCTION #####################################################
 
-W window_init(Arena *arena) {
+W window_create(Arena *arena) {
     // GLFW --------------------------------------------------------------------------------
 
     glfwInit();
@@ -317,6 +321,26 @@ W window_init(Arena *arena) {
         }
     }
 
+    // DESCRIPTOR SET POOL ---------------------------------------------------------------
+
+    VkDescriptorPool descriptor_pool;
+    {
+        VkDescriptorPoolSize pools[] = {
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16 },
+        };
+
+        VkDescriptorPoolCreateInfo info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .poolSizeCount = sizeof(pools)/sizeof(*pools),
+            .pPoolSizes = pools,
+            .maxSets = 16,
+            .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        };
+
+        VK_ASSERT(vkCreateDescriptorPool(device, &info, NULL, &descriptor_pool))
+    }
+
     // COMMAND POOL ----------------------------------------------------------------------
 
     VkCommandPool cmd_pool;
@@ -382,7 +406,7 @@ W window_init(Arena *arena) {
     W w = { 
         window, instance, phy_device, phy_mem_props, device, queue, cmd_pool, cmd_buffer,
         surface, sc, sc_extent, sc_images, sc_image_views, sc_image_count,
-        image_available, render_finished, in_flight, 
+        image_available, render_finished, in_flight, descriptor_pool,
 
         frame_arena, staging
     };
@@ -483,14 +507,54 @@ Pipeline pipeline_create(W *w, Arena *arena) {
         VK_ASSERT(vkCreateRenderPass(w->device, &pass_info, NULL, &pass));
     }
 
+    // DESCRIPTOR SET LAYOUT ----------------------------------------------------
+
+    VkDescriptorSetLayout descriptor_set_layout;
+    {
+        VkDescriptorSetLayoutBinding bindings[] = {
+            // atlas
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .binding = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                .descriptorCount = 1,
+            },
+
+            // glyph lookup table
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .binding = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            },
+
+            // glyphs to draw
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .binding = 2,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            }
+        };
+
+        // glyphs to draw
+        VkDescriptorSetLayoutCreateInfo info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = sizeof(bindings)/sizeof(*bindings),
+            .pBindings = bindings,
+        };
+
+        VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, NULL, &descriptor_set_layout));
+    }
+
     // PIPELINE -----------------------------------------------------------------
 
     VkPipelineLayout pl_layout;
     {
         VkPipelineLayoutCreateInfo layout_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = 0,
-            .pSetLayouts = NULL,
+            .setLayoutCount = 1,
+            .pSetLayouts = &descriptor_set_layout,
         };
 
         VK_ASSERT(vkCreatePipelineLayout(device, &layout_info, NULL, &pl_layout));
@@ -522,7 +586,7 @@ Pipeline pipeline_create(W *w, Arena *arena) {
 
         VkPipelineInputAssemblyStateCreateInfo primitive_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
             .primitiveRestartEnable = VK_FALSE,
         };
 
@@ -624,11 +688,14 @@ Pipeline pipeline_create(W *w, Arena *arena) {
         }
     }
 
-    return (Pipeline) { pass, sc_framebuffers, pl_layout, pl };
+    return (Pipeline) { pass, sc_framebuffers, descriptor_set_layout, pl_layout, pl };
 }
+
+// HELDER FUNCTION DEFINITIONS #####################################################
 
 void pipeline_destroy(W *w, Pipeline *p) {
     VkDevice device = w->device;
+    vkDestroyDescriptorSetLayout(device, p->descriptor_set_layout, NULL);
 
     for (U32 i = 0; i < w->sc_image_count; ++i)
         vkDestroyFramebuffer(device, p->sc_framebuffers[i], NULL);
@@ -641,6 +708,8 @@ void pipeline_destroy(W *w, Pipeline *p) {
 void window_destroy(W *w) {
     VkDevice device = w->device;
     VkInstance instance = w->instance;
+
+    vkDestroyDescriptorPool(device, w->descriptor_pool, NULL);
 
     gpu_free(w, w->staging_buffer.buffer_memory);
     vkDestroyBuffer(device, w->staging_buffer.buffer, NULL);
@@ -752,18 +821,38 @@ void staging_buffer_push_copy_cmd_to_image(
     staging_buffer->staging_copies_image = new;
 }
 
+void staging_buffer_push_image_transition(
+    StagingBuffer *staging_buffer,
+    Arena *arena,
+    VkImage target,
+    VkImageLayout old_layout,
+    VkImageLayout new_layout
+) {
+    ImageTransitionList *prev = staging_buffer->image_transitions;
+    ImageTransitionList *new = ARENA_ALLOC(arena, *new);
+    *new = (ImageTransitionList) { prev, target, old_layout, new_layout};
+    staging_buffer->image_transitions = new;
+}
+
 void staging_buffer_reset(StagingBuffer *staging_buffer) {
     staging_buffer->staging_head = staging_buffer->mapped_ptr;
     staging_buffer->staging_copies_buffer = NULL;
     staging_buffer->staging_copies_image = NULL;
+    staging_buffer->image_transitions = NULL;
 }
+
+// MAIN #####################################################
+
+static const Glyph glyphs[] = {
+    { .x = 0.4f, .y = 0.2f, .glyph_idx = 'A' }
+};
 
 int main(void) {
     Arena static_arena = arena_create_sized(1ull << 30); // 1 GB, virtual allocated
 
     // gltf window and vulkan ------------------------------------------
 
-    W w = window_init(&static_arena);
+    W w = window_create(&static_arena);
     Pipeline pl = pipeline_create(&w, &static_arena);
 
     // font atlas ------------------------------------------
@@ -773,18 +862,108 @@ int main(void) {
     FontAtlasConfig font_cfg = { .size = 16.0, .scale_factor = 1.0, .ttf_path = ttf_path };
     FontAtlas *font_atlas = font_atlas_create(backend, &font_cfg);
 
-    //uint32_t extensionCount = 0;
-    //vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, NULL);
+    // glyph draw buffer -----------------------------------
 
-    //printf("%u extensions\n", extensionCount);
+    VkBuffer glyph_draw_buffer;
+    VkDeviceMemory glyph_draw_buffer_memory;
+    {
+        VkBufferCreateInfo info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = sizeof(glyphs),
+            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        };
+        VK_ASSERT(vkCreateBuffer(backend->w->device, &info, NULL, &glyph_draw_buffer));
+        VK_ASSERT(gpu_alloc_buffer(
+            backend->w,
+            glyph_draw_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &glyph_draw_buffer_memory
+        ));
+
+        Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, sizeof(glyphs), 16);
+        memcpy(staging_glyph_draws, glyphs, sizeof(glyphs));
+
+        VkBufferCopy buffer_copy = {
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = sizeof(glyphs),
+        };
+
+        staging_buffer_push_copy_cmd_to_buffer(
+            &w.staging_buffer,
+            &w.frame_arena,
+            glyph_draw_buffer,
+            &buffer_copy
+        );
+    }
+
+    // descriptor set --------------------------------------
+
+    VkDescriptorSet descriptor_set;
+    {
+        VkDescriptorSetAllocateInfo info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = w.descriptor_pool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &pl.descriptor_set_layout,
+        };
+
+        VK_ASSERT(vkAllocateDescriptorSets(w.device, &info, &descriptor_set));
+    }
+
+    {
+        VkWriteDescriptorSet descriptor_writes[] = {
+            // atlas
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                .descriptorCount = 1,
+                .pImageInfo = &(VkDescriptorImageInfo) {
+                    .imageView = font_atlas->atlas_image_view,
+                    .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+                }
+            },
+
+            // glyph locations
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 1,
+                .dstArrayElement = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .pBufferInfo = &(VkDescriptorBufferInfo) {
+                    .buffer = font_atlas->glyph_lookup_buffer,
+                    .offset = 0,
+                    .range = GLYPH_LOOKUP_BUFFER_SIZE,
+                }
+            },
+
+            // glyphs to draw
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 2,
+                .dstArrayElement = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .pBufferInfo = &(VkDescriptorBufferInfo) {
+                    .buffer = glyph_draw_buffer,
+                    .offset = 0,
+                    .range = sizeof(glyphs),
+                }
+            },
+        };
+
+        U32 write_count = sizeof(descriptor_writes)/sizeof(*descriptor_writes);
+        vkUpdateDescriptorSets(w.device, write_count, descriptor_writes, 0, NULL);
+    }
 
     while (!glfwWindowShouldClose(w.window)) {
         glfwPollEvents();
-
-        // RESET STATE -----------------------------------------------------------
-
-        arena_clear(&w.frame_arena);
-        staging_buffer_reset(&w.staging_buffer);
 
         // UPDATE ----------------------------------------------------------------
         // todo
@@ -810,9 +989,58 @@ int main(void) {
             VK_ASSERT(vkBeginCommandBuffer(w.cmd_buffer, &begin_info));
         }
 
-        // WRITE STAGING COPY COMMANDS -------------------------------------------
+        // WRITE TRANSFER COMMANDS ------------------------------------------------
 
         {
+            U64 transition_count = 0;
+            VkImageMemoryBarrier *image_barriers = arena_prealign(&w.frame_arena, alignof(VkImageMemoryBarrier));
+
+            ImageTransitionList *transition = w.staging_buffer.image_transitions;
+            for (; transition != NULL; transition = transition->next) {
+                VkImageLayout old_layout = transition->old_layout;
+                VkImageLayout new_layout = transition->new_layout;
+
+                if (old_layout == new_layout) continue;
+
+                transition_count++;
+
+                VkImageMemoryBarrier *barrier = ARENA_ALLOC(&w.frame_arena, *barrier);
+                *barrier = (VkImageMemoryBarrier) {
+                    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    .oldLayout = transition->old_layout,
+                    .newLayout = transition->new_layout,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = transition->target_image,
+                    .subresourceRange = {
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .baseMipLevel = 0,
+                        .levelCount = 1,
+                        .baseArrayLayer = 0,
+                        .layerCount = 1,
+                    },
+
+                    // idk about these for writes outside of initialization (LAYOUT_UNDEFINED -> ...)
+                    .srcAccessMask = 0,                           
+                    .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,                           
+                };
+            }
+
+            if (transition_count) {
+                vkCmdPipelineBarrier(
+                    w.cmd_buffer,
+                    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,    // srcStageMask
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,       // dstStageMask
+                    0,                                    // dependencyFlags
+                    0,                                    // memoryBarrierCount
+                    NULL,                                 // pMemoryBarriers
+                    0,                                    // bufferBarrierCount  
+                    NULL,                                 // pBufferBarriers
+                    (U32)transition_count,                // imageBarrierCount
+                    image_barriers                        // pImageBarriers
+                );
+            }
+
             U64 copy_count = 0;
 
             StagingCopyBufferList *copy_b = w.staging_buffer.staging_copies_buffer;
@@ -832,17 +1060,18 @@ int main(void) {
             for (; copy_i != NULL; copy_i = copy_i->next) {
                 copy_count++;
 
+
                 vkCmdCopyBufferToImage(
                     w.cmd_buffer,
                     w.staging_buffer.buffer,
                     copy_i->target_image,
-                    VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_LAYOUT_GENERAL,
                     1,
                     &copy_i->location
                 );
             }
 
-            if (copy_count) {
+            if (copy_count | transition_count) {
                 // unused for now as we require the COHERENT bit
                 //_mm_sfence(); // flush cpu caches
 
@@ -891,11 +1120,25 @@ int main(void) {
                 .pClearValues = &clear_colour,
             };
             vkCmdBeginRenderPass(w.cmd_buffer, &pass_info, VK_SUBPASS_CONTENTS_INLINE);
-            vkCmdBindPipeline(w.cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pl.pl);
         }
 
         {
-            vkCmdDraw(w.cmd_buffer, 3, 1, 0, 0);
+            vkCmdBindPipeline(w.cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pl.pl);
+
+            vkCmdBindDescriptorSets(
+                w.cmd_buffer,
+                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pl.pl_layout,
+                0,
+                1,
+                &descriptor_set,
+                0,
+                NULL
+            );
+
+            U32 glyph_instances = sizeof(glyphs)/sizeof(*glyphs);
+            if (glyph_instances)
+                vkCmdDraw(w.cmd_buffer, 4, glyph_instances, 0, 0);
         }
 
         {
@@ -929,9 +1172,19 @@ int main(void) {
             };
             VK_ASSERT(vkQueuePresentKHR(w.queue, &present_info));
         }
+
+        // RESET STATE -----------------------------------------------------------
+
+        arena_clear(&w.frame_arena);
+        staging_buffer_reset(&w.staging_buffer);
     }
 
     VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
+
+    gpu_free(&w, glyph_draw_buffer_memory);
+    vkDestroyBuffer(w.device, glyph_draw_buffer, NULL);
+
+    vkFreeDescriptorSets(w.device, w.descriptor_pool, 1, &descriptor_set);
     pipeline_destroy(&w, &pl);
     font_atlas_destroy(backend, font_atlas);
     font_backend_destroy(backend);
