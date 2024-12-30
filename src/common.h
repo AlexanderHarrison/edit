@@ -147,37 +147,4 @@ staging_buffer_push_image_transition(
 void
 staging_buffer_reset(StagingBuffer *staging_buffer);
 
-typedef struct {
-    F32 x, y;
-} Vec2;
-
-typedef struct {
-    F32 x, y, w, h;
-} Rect;
-
-static inline Vec2
-Vec2_add(Vec2 a, Vec2 b) {
-    return (Vec2) { a.x + b.x, a.y + b.y };
-}
-
-static inline Vec2
-Vec2_sub(Vec2 a, Vec2 b) {
-    return (Vec2) { a.x - b.x, a.y - b.y };
-}
-
-static inline F32
-Vec2_dot(Vec2 a, Vec2 b) {
-    return a.x*b.x + a.y*b.y;
-}
-
-static inline F32
-Vec2_length_sq(Vec2 a) {
-    return a.x*a.x + a.y*a.y;
-}
-
-static inline F32
-Vec2_length(Vec2 a) {
-    return sqrtf(Vec2_length_sq(a));
-}
-
 #endif
