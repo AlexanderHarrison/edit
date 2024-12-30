@@ -8,7 +8,12 @@ layout(location = 1) in vec2 glyph_uv;
 layout(location = 0) out vec4 colour;
 
 void main() {
-    float alpha = imageLoad(atlas, ivec2(glyph_uv)).r;
+    float alpha;
+    if (glyph_uv != vec2(0.0)) {
+        alpha = imageLoad(atlas, ivec2(glyph_uv)).r;
+    } else {
+        alpha = 1.0;
+    }
 
     colour = frag_colour * alpha;
 }

@@ -9,10 +9,11 @@
 
 #define CODE_FONT_SIZE FontSize_14
 #define CODE_LINE_SPACING 15.f
-#define CODE_SCROLL_SPEED_SLOW 0.1f
+#define CODE_SCROLL_SPEED_SLOW 0.2f
 #define CODE_SCROLL_SPEED_FAST 0.6f
 #define BACKGROUND { 4, 4, 4, 255 }
 #define FOREGROUND { 170, 170, 170, 255 }
+#define HIGHLIGHT { 30, 30, 30, 255 }
 
 #define KB (1ull << 10)
 #define MB (1ull << 20)

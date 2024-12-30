@@ -25,6 +25,10 @@ typedef struct Glyph {
     RGBA8 colour;
 } Glyph;
 
+static inline U32 special_glyph_rect(U32 width, U32 height) {
+    return (1u << 24) | (width << 12) | height;
+}
+
 typedef struct GlyphSlice {
     Glyph *ptr;
     U64 count;
@@ -52,6 +56,10 @@ typedef struct {
     VkDeviceMemory glyph_lookup_buffer_memory;
 
     GlyphInfo *glyph_info;
+
+    // metrics
+    F32 descent[FontSize_Count];
+    F32 ascent[FontSize_Count];
 } FontAtlas;
 
 static inline U32

@@ -19,12 +19,23 @@ layout(location = 1) out vec2 glyph_uv;
 
 void main() {
     Glyph glyph = glyphs_to_draw[gl_InstanceIndex];
-    GlyphLoc glyph_loc = glyph_locations[glyph.glyph_idx];
-
+    uint special = glyph.glyph_idx >> 24;
     vec2 uv = vec2((~(gl_VertexIndex >> 1) & 1), gl_VertexIndex & 1);
-    glyph_uv = uv * vec2(glyph_loc.size) + vec2(glyph_loc.offset);
 
-    vec2 dims = vec2(glyph_loc.size) / 800.0;
+    vec2 dims;
+    if (special == 0) {
+        GlyphLoc glyph_loc = glyph_locations[glyph.glyph_idx];
+        glyph_uv = uv * vec2(glyph_loc.size) + vec2(glyph_loc.offset);
+        dims = vec2(glyph_loc.size);
+    } else if (special == 1) {
+        glyph_uv = vec2(0);
+        dims = vec2(
+            float((glyph.glyph_idx >> 12) & 0xFFFu),
+            float(glyph.glyph_idx & 0xFFFu)
+        );
+    }
+    dims /= 800.0;
+
     vec2 glyph_position = glyph.position / 800.0;
     gl_Position = vec4((uv * dims + glyph_position) * 2.0 - 1.0, 0.0, 1.0);
 

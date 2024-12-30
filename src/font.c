@@ -104,12 +104,11 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) {
         U64 image_suballocator_current_row_height = 0;
 
         for (U64 font_size_i = 0; font_size_i < FontSize_Count; ++font_size_i) {
-            //image_suballocator_y += image_suballocator_current_row_height;
-            //image_suballocator_current_row_height = 0;
-            //image_suballocator_x = 0;
-
             // TODO: scale factor calculation
             assert(FT_Set_Char_Size(face, 0, (I64)font_size_px[font_size_i] * 64, 0, 72.0f) == 0);
+
+            atlas->descent[font_size_i] = (F32)face->size->metrics.descender / 64.f;
+            atlas->ascent[font_size_i] = (F32)face->size->metrics.ascender / 64.f;
 
             // WRITE GLYPHS TO BUFFER --------------------------------------------------------
 
