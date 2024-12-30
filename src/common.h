@@ -112,9 +112,6 @@ gpu_alloc_image(
 void
 gpu_free(W *w, VkDeviceMemory mem);
 
-U32
-find_memory_type(W *w, U32 type_filter, VkMemoryPropertyFlags props);
-
 U8 *
 staging_buffer_alloc(StagingBuffer *staging_buffer, U64 size, U64 alignment);
 

@@ -714,17 +714,6 @@ void window_destroy(W *w) {
     glfwTerminate();
 }
 
-U32 find_memory_type(W *w, U32 type_filter, VkMemoryPropertyFlags props) {
-    for (U32 i = 0; i < w->phy_mem_props.memoryTypeCount; ++i) {
-        bool filter_match = (type_filter & (1u << i)) != 0;
-        bool props_match = (w->phy_mem_props.memoryTypes[i].propertyFlags & props) == props;
-        if (filter_match & props_match) return i;
-    }
-
-    // no suitable memory found
-    assert(0);
-}
-
 void gpu_free(W *w, VkDeviceMemory mem) {
     vkFreeMemory(w->device, mem, NULL);
 }
@@ -735,10 +724,24 @@ static VkResult gpu_alloc(
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
 ) {
+    U32 mem_idx;
+    bool found_mem = false;
+    for (U32 i = 0; i < w->phy_mem_props.memoryTypeCount; ++i) {
+        bool filter_match = (mem_req->memoryTypeBits & (1u << i)) != 0;
+        bool props_match = (w->phy_mem_props.memoryTypes[i].propertyFlags & props) == props;
+        if (filter_match & props_match) {
+            mem_idx = i;
+            found_mem = true;
+            break;
+        }
+    }
+
+    assert(found_mem);
+
     VkMemoryAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .allocationSize = mem_req->size,
-        .memoryTypeIndex = find_memory_type(w, mem_req->memoryTypeBits, props),
+        .memoryTypeIndex = mem_idx,
     };
     VkResult ret = vkAllocateMemory(w->device, &alloc_info, NULL, mem);
     if (ret != VK_SUCCESS) return ret;
