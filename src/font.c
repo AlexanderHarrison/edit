@@ -88,6 +88,8 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) {
         ));
     }
 
+    atlas->glyph_info = ARENA_ALLOC_ARRAY(arena, *atlas->glyph_info, 256 * FontSize_Count);
+
     // CREATE FONT FACE -------------------------------------------------------------
 
     {
@@ -116,19 +118,28 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) {
 
                 // create glyph bitmap ----------------
                 FT_Bitmap *bitmap;
+                FT_GlyphSlot glyph;
                 {
                     assert(FT_Load_Char(face, ch, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL) == 0);
-                    FT_GlyphSlot glyph = face->glyph;
-                    assert(glyph != NULL);
-                    bitmap = &glyph->bitmap;
 
+                    glyph = face->glyph;
+                    assert(glyph != NULL);
+
+                    bitmap = &glyph->bitmap;
                     if (bitmap->width * bitmap->rows == 0) {
                         staging_glyph_lookup[ch_lookup_idx] = (AtlasLocation) {0};
                         continue;
                     }
-
                     assert(bitmap->pitch > 0);
                 }
+
+                // copy glyph details -----------------
+
+                atlas->glyph_info[ch_lookup_idx] = (GlyphInfo) {
+                    .offset_x = (F32)glyph->bitmap_left,
+                    .offset_y = -(F32)glyph->bitmap_top,
+                    .advance_width = (F32)glyph->linearHoriAdvance / 65536.f,
+                };
 
                 // copy glyph to staging ----------------
                 // idk the alignment to use, 16 should be fine.

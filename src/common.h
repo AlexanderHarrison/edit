@@ -11,6 +11,7 @@
 #define MB (1ull << 20)
 #define GB (1ull << 30)
 
+#define countof(A) (sizeof(A)/sizeof(*A))
 #define VK_ASSERT(expr) assert(expr == VK_SUCCESS);
 
 #ifndef FASTMODE
@@ -78,7 +79,13 @@ typedef struct {
     VkSemaphore render_finished;
     VkFence in_flight;
 
+    VkRenderPass pass;
+    VkFramebuffer* sc_framebuffers;
+    VkPipelineLayout pl_layout;
+    VkPipeline pl;
+
     VkDescriptorPool descriptor_pool;
+    VkDescriptorSetLayout descriptor_set_layout_glyphs;
 
     // PER FRAME DATA -------------------------------
 

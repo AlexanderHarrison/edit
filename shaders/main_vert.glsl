@@ -25,13 +25,14 @@ void main() {
     glyph_uv = uv * vec2(glyph_loc.size) + vec2(glyph_loc.offset);
 
     vec2 dims = vec2(glyph_loc.size) / 800.0;
-    gl_Position = vec4((uv * dims + glyph.position) * 2.0 - 1.0, 0.0, 1.0);
+    vec2 glyph_position = glyph.position / 800.0;
+    gl_Position = vec4((uv * dims + glyph_position) * 2.0 - 1.0, 0.0, 1.0);
 
     uint colour_packed = glyph.colour;
     frag_colour = vec4(
-        float((colour_packed >> 24) & 0xFFu), // R
-        float((colour_packed >> 16) & 0xFFu), // G
-        float((colour_packed >> 8) & 0xFFu),  // B
-        float(colour_packed & 0xFFu)          // A
+        float(colour_packed & 0xFFu),         // R
+        float((colour_packed >> 8) & 0xFFu),  // G
+        float((colour_packed >> 16) & 0xFFu), // B
+        float((colour_packed >> 24) & 0xFFu)  // A
     ) / 255.0;
 }

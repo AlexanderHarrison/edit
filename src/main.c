@@ -15,15 +15,8 @@
 #define SURFACE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define SURFACE_COLOUR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
 #define SURFACE_PRESENT_MODE VK_PRESENT_MODE_FIFO_KHR
-
-typedef struct {
-    VkRenderPass pass;
-    VkFramebuffer* sc_framebuffers;
-
-    VkDescriptorSetLayout descriptor_set_layout;
-    VkPipelineLayout pl_layout;
-    VkPipeline pl;
-} Pipeline;
+#define MAX_GLYPHS 1024
+#define MAX_GLYPHS_SIZE (1024*sizeof(Glyph))
 
 W
 window_create(Arena *arena);
@@ -31,11 +24,9 @@ window_create(Arena *arena);
 void
 window_destroy(W *w);
 
-Pipeline
-pipeline_create(W *w, Arena *arena);
+VkDescriptorSet descriptor_set_glyphs_create(W *w, FontAtlas *font_atlas, VkBuffer glyphs_buffer);
 
-void
-pipeline_destroy(W *w, Pipeline *p);
+void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set);
 
 int
 main(void);
@@ -203,7 +194,7 @@ W window_create(Arena *arena) {
             .queueCreateInfoCount = 1,
             .pQueueCreateInfos = &queue_create_info,
             .pEnabledFeatures = &features,
-            .enabledExtensionCount = sizeof(required_dev_exts)/sizeof(*required_dev_exts),
+            .enabledExtensionCount = countof(required_dev_exts),
             .ppEnabledExtensionNames = required_dev_exts,
             .enabledLayerCount = 1,
             .ppEnabledLayerNames = &validation_layer,
@@ -332,13 +323,53 @@ W window_create(Arena *arena) {
 
         VkDescriptorPoolCreateInfo info = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .poolSizeCount = sizeof(pools)/sizeof(*pools),
+            .poolSizeCount = countof(pools),
             .pPoolSizes = pools,
             .maxSets = 16,
             .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
         };
 
         VK_ASSERT(vkCreateDescriptorPool(device, &info, NULL, &descriptor_pool))
+    }
+
+    // DESCRIPTOR SET LAYOUTS ---------------------------------------------------------------
+
+    VkDescriptorSetLayout descriptor_set_layout_glyphs;
+    {
+        static const VkDescriptorSetLayoutBinding bindings[] = {
+            // atlas
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .binding = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                .descriptorCount = 1,
+            },
+
+            // glyph lookup table
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .binding = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            },
+
+            // glyphs to draw
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .binding = 2,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            }
+        };
+
+        // glyphs to draw
+        VkDescriptorSetLayoutCreateInfo info = {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = countof(bindings),
+            .pBindings = bindings,
+        };
+
+        VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, NULL, &descriptor_set_layout_glyphs));
     }
 
     // COMMAND POOL ----------------------------------------------------------------------
@@ -400,37 +431,6 @@ W window_create(Arena *arena) {
 
         // staging.buffer_memory will be allocated later
     }
-
-    // CREATE W -------------------------------------------------------------------------------
-
-    W w = { 
-        window, instance, phy_device, phy_mem_props, device, queue, cmd_pool, cmd_buffer,
-        surface, sc, sc_extent, sc_images, sc_image_views, sc_image_count,
-        image_available, render_finished, in_flight, descriptor_pool,
-
-        frame_arena, staging
-    };
-
-    // ALLOC GPU BUFFERS ---------------------------------------------------------------------
-
-    {
-        VK_ASSERT(gpu_alloc_buffer(
-            &w, 
-            w.staging_buffer.buffer,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            &w.staging_buffer.buffer_memory
-        ));
-        VK_ASSERT(vkMapMemory(w.device, w.staging_buffer.buffer_memory, 0, STAGING_BUFFER_SIZE, 0, (void**) &w.staging_buffer.mapped_ptr));
-        staging_buffer_reset(&w.staging_buffer);
-    }
-
-    // END -----------------------------------------------------------------------------------
-
-    return w;
-}
-
-Pipeline pipeline_create(W *w, Arena *arena) {
-    VkDevice device = w->device;
 
     // SHADERS -------------------------------------------------------
 
@@ -504,47 +504,7 @@ Pipeline pipeline_create(W *w, Arena *arena) {
             .pDependencies = &dependency,
         };
 
-        VK_ASSERT(vkCreateRenderPass(w->device, &pass_info, NULL, &pass));
-    }
-
-    // DESCRIPTOR SET LAYOUT ----------------------------------------------------
-
-    VkDescriptorSetLayout descriptor_set_layout;
-    {
-        VkDescriptorSetLayoutBinding bindings[] = {
-            // atlas
-            {
-                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                .binding = 0,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                .descriptorCount = 1,
-            },
-
-            // glyph lookup table
-            {
-                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                .binding = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 1,
-            },
-
-            // glyphs to draw
-            {
-                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                .binding = 2,
-                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                .descriptorCount = 1,
-            }
-        };
-
-        // glyphs to draw
-        VkDescriptorSetLayoutCreateInfo info = {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .bindingCount = sizeof(bindings)/sizeof(*bindings),
-            .pBindings = bindings,
-        };
-
-        VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, NULL, &descriptor_set_layout));
+        VK_ASSERT(vkCreateRenderPass(device, &pass_info, NULL, &pass));
     }
 
     // PIPELINE -----------------------------------------------------------------
@@ -554,7 +514,7 @@ Pipeline pipeline_create(W *w, Arena *arena) {
         VkPipelineLayoutCreateInfo layout_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 1,
-            .pSetLayouts = &descriptor_set_layout,
+            .pSetLayouts = &descriptor_set_layout_glyphs,
         };
 
         VK_ASSERT(vkCreatePipelineLayout(device, &layout_info, NULL, &pl_layout));
@@ -593,15 +553,15 @@ Pipeline pipeline_create(W *w, Arena *arena) {
         VkViewport viewport = {
             .x = 0.0f,
             .y = 0.0f,
-            .width = (F32) w->sc_extent.width,
-            .height = (F32) w->sc_extent.height,
+            .width = (F32) sc_extent.width,
+            .height = (F32) sc_extent.height,
             .minDepth = 0.0f,
             .maxDepth = 1.0f,
         };
 
         VkRect2D scissor = {
             .offset = {0, 0},
-            .extent = w->sc_extent,
+            .extent = sc_extent,
         };
 
         VkPipelineViewportStateCreateInfo viewport_state_info = {
@@ -670,44 +630,68 @@ Pipeline pipeline_create(W *w, Arena *arena) {
 
     // FRAMEBUFFERS ---------------------------------------------------------------
 
-    VkFramebuffer *sc_framebuffers = ARENA_ALLOC_ARRAY(arena, sizeof(VkFramebuffer), w->sc_image_count);
+    VkFramebuffer *sc_framebuffers = ARENA_ALLOC_ARRAY(arena, sizeof(VkFramebuffer), sc_image_count);
     {
         VkFramebufferCreateInfo fb_info = {
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .renderPass = pass,
             .attachmentCount = 1,
-            .width = w->sc_extent.width,
-            .height = w->sc_extent.height,
+            .width = sc_extent.width,
+            .height = sc_extent.height,
             .layers = 1,
         };
 
-        for (U32 i = 0; i < w->sc_image_count; ++i) {
-            VkImageView attachments[] = { w->sc_image_views[i] };
+        for (U32 i = 0; i < sc_image_count; ++i) {
+            VkImageView attachments[] = { sc_image_views[i] };
             fb_info.pAttachments = attachments;
             VK_ASSERT(vkCreateFramebuffer(device, &fb_info, NULL, &sc_framebuffers[i]));
         }
     }
 
-    return (Pipeline) { pass, sc_framebuffers, descriptor_set_layout, pl_layout, pl };
+    // CREATE W -------------------------------------------------------------------------------
+
+    W w = { 
+        window, instance, phy_device, phy_mem_props, device, queue, cmd_pool, cmd_buffer,
+        surface, sc, sc_extent, sc_images, sc_image_views, sc_image_count,
+        image_available, render_finished, in_flight,
+        pass, sc_framebuffers, pl_layout, pl,
+        descriptor_pool, descriptor_set_layout_glyphs,
+
+        frame_arena, staging
+    };
+
+    // ALLOC GPU BUFFERS ---------------------------------------------------------------------
+
+    {
+        VK_ASSERT(gpu_alloc_buffer(
+            &w, 
+            w.staging_buffer.buffer,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &w.staging_buffer.buffer_memory
+        ));
+        VK_ASSERT(vkMapMemory(w.device, w.staging_buffer.buffer_memory, 0, STAGING_BUFFER_SIZE, 0, (void**) &w.staging_buffer.mapped_ptr));
+        staging_buffer_reset(&w.staging_buffer);
+    }
+
+    // END -----------------------------------------------------------------------------------
+
+    return w;
 }
 
 // HELDER FUNCTION DEFINITIONS #####################################################
 
-void pipeline_destroy(W *w, Pipeline *p) {
-    VkDevice device = w->device;
-    vkDestroyDescriptorSetLayout(device, p->descriptor_set_layout, NULL);
-
-    for (U32 i = 0; i < w->sc_image_count; ++i)
-        vkDestroyFramebuffer(device, p->sc_framebuffers[i], NULL);
-
-    vkDestroyRenderPass(device, p->pass, NULL);
-    vkDestroyPipelineLayout(device, p->pl_layout, NULL);
-    vkDestroyPipeline(device, p->pl, NULL);
-}
-
 void window_destroy(W *w) {
     VkDevice device = w->device;
     VkInstance instance = w->instance;
+
+    vkDestroyDescriptorSetLayout(device, w->descriptor_set_layout_glyphs, NULL);
+
+    for (U32 i = 0; i < w->sc_image_count; ++i)
+        vkDestroyFramebuffer(device, w->sc_framebuffers[i], NULL);
+
+    vkDestroyRenderPass(device, w->pass, NULL);
+    vkDestroyPipelineLayout(device, w->pl_layout, NULL);
+    vkDestroyPipeline(device, w->pl, NULL);
 
     vkDestroyDescriptorPool(device, w->descriptor_pool, NULL);
 
@@ -843,57 +827,19 @@ void staging_buffer_reset(StagingBuffer *staging_buffer) {
     staging_buffer->image_transitions = NULL;
 }
 
-// MAIN #####################################################
-
-#define SIZE_X FontSize_Count
-#define SIZE_Y 5*2
-
-int main(void) {
-    Arena static_arena = arena_create_sized(1ull << 30); // 1 GB, virtual allocated
-                                                         //
-    Glyph glyphs[SIZE_X * SIZE_Y];
-
-    // gltf window and vulkan ------------------------------------------
-
-    W w = window_create(&static_arena);
-    Pipeline pl = pipeline_create(&w, &static_arena);
-
-    // font atlas ------------------------------------------
-
-    const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Medium.ttf";
-    FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
-
-    // glyph draw buffer -----------------------------------
-
-    VkBuffer glyph_draw_buffer;
-    VkDeviceMemory glyph_draw_buffer_memory;
-    {
-        VkBufferCreateInfo info = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = sizeof(glyphs),
-            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        };
-        VK_ASSERT(vkCreateBuffer(w.device, &info, NULL, &glyph_draw_buffer));
-        VK_ASSERT(gpu_alloc_buffer(
-            &w,
-            glyph_draw_buffer,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            &glyph_draw_buffer_memory
-        ));
-    }
-
-    // descriptor set --------------------------------------
-
+VkDescriptorSet descriptor_set_glyphs_create(
+    W *w, FontAtlas *font_atlas, VkBuffer glyphs_buffer
+) {
     VkDescriptorSet descriptor_set;
     {
         VkDescriptorSetAllocateInfo info = {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = w.descriptor_pool,
+            .descriptorPool = w->descriptor_pool,
             .descriptorSetCount = 1,
-            .pSetLayouts = &pl.descriptor_set_layout,
+            .pSetLayouts = &w->descriptor_set_layout_glyphs,
         };
 
-        VK_ASSERT(vkAllocateDescriptorSets(w.device, &info, &descriptor_set));
+        VK_ASSERT(vkAllocateDescriptorSets(w->device, &info, &descriptor_set));
     }
 
     {
@@ -936,39 +882,103 @@ int main(void) {
                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 .descriptorCount = 1,
                 .pBufferInfo = &(VkDescriptorBufferInfo) {
-                    .buffer = glyph_draw_buffer,
+                    .buffer = glyphs_buffer,
                     .offset = 0,
-                    .range = sizeof(glyphs),
+                    .range = MAX_GLYPHS_SIZE,
                 }
             },
         };
 
-        U32 write_count = sizeof(descriptor_writes)/sizeof(*descriptor_writes);
-        vkUpdateDescriptorSets(w.device, write_count, descriptor_writes, 0, NULL);
+        U32 write_count = countof(descriptor_writes);
+        vkUpdateDescriptorSets(w->device, write_count, descriptor_writes, 0, NULL);
     }
 
-        for (I64 y = 0; y < SIZE_Y; ++y) {
-            for (I64 x = 0; x < SIZE_X; ++x) {
-                I64 i = y*SIZE_X + x;
-                glyphs[i] = (Glyph) {
-                    .x = ((F32)x * 40.0f) / 800.0f,
-                    .y = ((F32)y * 40.0f) / 800.0f,
-                    .glyph_idx = glyph_lookup_idx(x % FontSize_Count, 'a'),
-                    .colour = { 255, 255, 0, 255 },
-                };
-            }
-        }
+    return descriptor_set;
+}
+
+void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set) {
+    vkFreeDescriptorSets(w->device, w->descriptor_pool, 1, &descriptor_set);
+}
+
+
+// MAIN #####################################################
+
+#define SIZE_X FontSize_Count
+#define SIZE_Y 5*2
+
+int main(void) {
+    Arena static_arena = arena_create_sized(1ull << 30); // 1 GB, virtual allocated
+
+    // gltf window and vulkan -------------------------------------------
+
+    W w = window_create(&static_arena);
+
+    // font atlas -------------------------------------------------------
+
+    const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Medium.ttf";
+    FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
+
+    // glyph draw buffer ------------------------------------------------
+
+    VkBuffer glyph_draw_buffer;
+    VkDeviceMemory glyph_draw_buffer_memory;
+    {
+        VkBufferCreateInfo info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = MAX_GLYPHS_SIZE,
+            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        };
+        VK_ASSERT(vkCreateBuffer(w.device, &info, NULL, &glyph_draw_buffer));
+        VK_ASSERT(gpu_alloc_buffer(
+            &w,
+            glyph_draw_buffer,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &glyph_draw_buffer_memory
+        ));
+    }
+
+    // alloc descriptor sets --------------------------------------------
+
+    VkDescriptorSet descriptor_set_glyphs = descriptor_set_glyphs_create(&w, font_atlas, glyph_draw_buffer);
+
+    F32 frame = 0.0;
+    while (!glfwWindowShouldClose(w.window)) {
+        glfwPollEvents();
+
+        // UPDATE ----------------------------------------------------------------
 
         // write glyphs buffer
+
+        const char *text = "Hello, World!";
+        U64 glyphs_count = strlen(text);
+        U64 glyphs_size = glyphs_count * sizeof(Glyph);
+        Glyph *glyphs = ARENA_ALLOC_ARRAY(&w.frame_arena, *glyphs, glyphs_count);
+
+        F32 pen_x = 50.f;
+        for (U64 ch_i = 0; ch_i < glyphs_count; ++ch_i) {
+            char ch = text[ch_i];
+            U32 glyph_idx = glyph_lookup_idx(FontSize_16, ch);
+            GlyphInfo info = font_atlas->glyph_info[glyph_idx];
+
+            glyphs[ch_i] = (Glyph) {
+                .x = pen_x + info.offset_x,
+                .y = 400.f + info.offset_y,
+                .glyph_idx = glyph_idx,
+                .colour = { 255, 255, 255, 255 },
+            };
+
+            pen_x += info.advance_width;
+        }
+
         {
-            Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, sizeof(glyphs), 16);
-            memcpy(staging_glyph_draws, glyphs, sizeof(glyphs));
+            Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, glyphs_size, 16);
+            memcpy(staging_glyph_draws, glyphs, glyphs_size);
 
             VkBufferCopy *buffer_copy = ARENA_ALLOC(&w.frame_arena, *buffer_copy);
             *buffer_copy = (VkBufferCopy) {
                 .srcOffset = (U64)((U8*)staging_glyph_draws - w.staging_buffer.mapped_ptr),
                 .dstOffset = 0,
-                .size = sizeof(glyphs),
+                .size = glyphs_size,
             };
 
             staging_buffer_cmd_copy_to_buffer(
@@ -979,13 +989,6 @@ int main(void) {
                 buffer_copy
             );
         }
-
-
-    F32 frame = 0.0;
-    while (!glfwWindowShouldClose(w.window)) {
-        glfwPollEvents();
-
-        // UPDATE ----------------------------------------------------------------
 
         // WAIT FOR NEXT FRAME ---------------------------------------------------
 
@@ -1130,8 +1133,8 @@ int main(void) {
             VkClearValue clear_colour = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
             VkRenderPassBeginInfo pass_info = {
                 .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-                .renderPass = pl.pass,
-                .framebuffer = pl.sc_framebuffers[sc_image_idx],
+                .renderPass = w.pass,
+                .framebuffer = w.sc_framebuffers[sc_image_idx],
                 .renderArea = {
                     .offset = {0, 0},
                     .extent = w.sc_extent,
@@ -1143,22 +1146,23 @@ int main(void) {
         }
 
         {
-            vkCmdBindPipeline(w.cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pl.pl);
+            vkCmdBindPipeline(w.cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, w.pl);
 
             vkCmdBindDescriptorSets(
                 w.cmd_buffer,
                 VK_PIPELINE_BIND_POINT_GRAPHICS,
-                pl.pl_layout,
+                w.pl_layout,
                 0,
                 1,
-                &descriptor_set,
+                &descriptor_set_glyphs,
                 0,
                 NULL
             );
 
-            U32 glyph_instances = sizeof(glyphs)/sizeof(*glyphs);
-            if (glyph_instances)
-                vkCmdDraw(w.cmd_buffer, 4, glyph_instances, 0, 0);
+            if (glyphs_count) {
+                assert(glyphs_count < MAX_GLYPHS);
+                vkCmdDraw(w.cmd_buffer, 4, (U32)glyphs_count, 0, 0);
+            }
         }
 
         {
@@ -1205,8 +1209,7 @@ int main(void) {
     gpu_free(&w, glyph_draw_buffer_memory);
     vkDestroyBuffer(w.device, glyph_draw_buffer, NULL);
 
-    vkFreeDescriptorSets(w.device, w.descriptor_pool, 1, &descriptor_set);
-    pipeline_destroy(&w, &pl);
+    descriptor_set_destroy(&w, descriptor_set_glyphs);
     font_atlas_destroy(&w, font_atlas);
     window_destroy(&w);
     arena_destroy(&static_arena);
