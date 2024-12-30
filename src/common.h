@@ -7,6 +7,13 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#define CODE_FONT_SIZE FontSize_14
+#define CODE_LINE_SPACING 15.f
+#define CODE_SCROLL_SPEED_SLOW 0.1f
+#define CODE_SCROLL_SPEED_FAST 0.6f
+#define BACKGROUND { 4, 4, 4, 255 }
+#define FOREGROUND { 170, 170, 170, 255 }
+
 #define KB (1ull << 10)
 #define MB (1ull << 20)
 #define GB (1ull << 30)
@@ -24,9 +31,23 @@ typedef struct CharEvent {
     U32 codepoint;
 } CharEvent;
 
+typedef struct KeyEvent {
+    int key, scan, action, mods;
+} KeyEvent;
+
 typedef struct Inputs {
     CharEvent *char_events;
+    KeyEvent *key_events;
     U32 char_event_count;
+    U32 key_event_count;
+
+    // starting from GLFW_SPACE
+    U64 key_held;
+    U64 key_held_prev;
+    U64 key_pressed;
+    U64 key_released;
+    U64 key_repeating;
+    U32 modifiers;
 
     // mouse
     bool mouse_in_window;
@@ -37,6 +58,32 @@ typedef struct Inputs {
     U32 mouse_released;
     F32 scroll;
 } Inputs;
+
+static inline U64 key_mask(int glfw_key) {
+    if (glfw_key < GLFW_KEY_SPACE || GLFW_KEY_SPACE + 64 <= glfw_key)
+        return 0;
+    else
+        return 1ul << (glfw_key - GLFW_KEY_SPACE);
+}
+
+static inline U32 mod_mask(int glfw_key) {
+    switch (glfw_key) {
+        case GLFW_KEY_LEFT_SHIFT:
+        case GLFW_KEY_RIGHT_SHIFT:
+            return GLFW_MOD_SHIFT;
+        case GLFW_KEY_LEFT_CONTROL:
+        case GLFW_KEY_RIGHT_CONTROL:
+            return GLFW_MOD_CONTROL;
+        case GLFW_KEY_LEFT_ALT:
+        case GLFW_KEY_RIGHT_ALT:
+            return GLFW_MOD_ALT;
+        case GLFW_KEY_LEFT_SUPER:
+        case GLFW_KEY_RIGHT_SUPER:
+            return GLFW_MOD_SUPER;
+        default:
+            return 0;
+    }
+}
 
 typedef struct Rect {
     F32 x, y, w, h;
@@ -116,6 +163,8 @@ typedef struct {
     Inputs inputs;
     Arena frame_arena;
     StagingBuffer staging_buffer;
+
+    bool should_close;
 } W;
 
 VkResult

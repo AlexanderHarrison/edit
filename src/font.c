@@ -128,6 +128,13 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) {
                     bitmap = &glyph->bitmap;
                     if (bitmap->width * bitmap->rows == 0) {
                         staging_glyph_lookup[ch_lookup_idx] = (AtlasLocation) {0};
+
+                        atlas->glyph_info[ch_lookup_idx] = (GlyphInfo) {
+                            .offset_x = (F32)glyph->bitmap_left,
+                            .offset_y = -(F32)glyph->bitmap_top,
+                            .advance_width = (F32)glyph->linearHoriAdvance / 65536.f,
+                        };
+
                         continue;
                     }
                     assert(bitmap->pitch > 0);

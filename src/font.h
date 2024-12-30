@@ -55,7 +55,7 @@ typedef struct {
 } FontAtlas;
 
 static inline U32
-glyph_lookup_idx(FontSize font_size, char ch) {
+glyph_lookup_idx(FontSize font_size, U8 ch) {
     return (U32)font_size * 256u + (U32)ch;
 }
 

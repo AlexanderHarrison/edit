@@ -24,12 +24,9 @@ build/edit: build/main_vert.spv build/main_frag.spv src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
 
 build: build/edit
-run: build/edit
-	./$(OUT)
 
 san: build/main_vert.spv build/main_frag.spv src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(SAN_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
-	./$(OUT)
 
 clean:
 	rm -r build/*

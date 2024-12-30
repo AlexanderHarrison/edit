@@ -3,6 +3,9 @@
 #include "font.h"
 #include "font.c"
 
+#include "editor.h"
+#include "editor.c"
+
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 
@@ -15,8 +18,6 @@
 #define SURFACE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define SURFACE_COLOUR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
 #define SURFACE_PRESENT_MODE VK_PRESENT_MODE_FIFO_KHR
-#define MAX_GLYPHS 1024
-#define MAX_GLYPHS_SIZE (1024*sizeof(Glyph))
 
 W
 window_create(Arena *arena);
@@ -35,9 +36,6 @@ void glfw_callback_char         (GLFWwindow *window, unsigned int codepoint);
 void glfw_callback_mouse_pos    (GLFWwindow *window, double x, double y);
 void glfw_callback_mouse_button (GLFWwindow *window, int button, int action, int mods);
 void glfw_callback_scroll       (GLFWwindow *window, double x, double y);
-
-int
-main(void);
 
 // WINDOWING FUNCTION #####################################################
 
@@ -599,7 +597,13 @@ W window_create(Arena *arena) {
 
         VkPipelineColorBlendAttachmentState colour_blend_attachment = {
             .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-            .blendEnable = VK_FALSE,
+            .blendEnable = VK_TRUE,
+            .colorBlendOp = VK_BLEND_OP_ADD,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .alphaBlendOp = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
         };
 
         VkPipelineColorBlendStateCreateInfo colour_blend_state = {
@@ -608,7 +612,6 @@ W window_create(Arena *arena) {
             .logicOp = VK_LOGIC_OP_COPY,
             .attachmentCount = 1,
             .pAttachments = &colour_blend_attachment,
-            .blendConstants = {0.0f, 0.0f, 0.0f, 0.0f},
         };
 
         const VkPipelineShaderStageCreateInfo stages[] = {vert_info, frag_info};
@@ -658,6 +661,7 @@ W window_create(Arena *arena) {
 
     Inputs inputs = {
         .char_events = ARENA_ALLOC_ARRAY(arena, CharEvent, MAX_EVENTS),
+        .key_events = ARENA_ALLOC_ARRAY(arena, KeyEvent, MAX_EVENTS),
     };
 
     // CREATE W -------------------------------------------------------------------------------
@@ -669,7 +673,7 @@ W window_create(Arena *arena) {
         pass, sc_framebuffers, pl_layout, pl,
         descriptor_pool, descriptor_set_layout_glyphs,
 
-        inputs, frame_arena, staging
+        inputs, frame_arena, staging, false,
     };
 
     // ALLOC GPU BUFFERS ---------------------------------------------------------------------
@@ -921,7 +925,7 @@ void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set) {
 #define SIZE_X FontSize_Count
 #define SIZE_Y 5*2
 
-int main(void) {
+int main(int argc, char *argv[]) {
     Arena static_arena = arena_create_sized(1ull << 30); // 1 GB, virtual allocated
 
     // gltf window and vulkan -------------------------------------------
@@ -942,7 +946,9 @@ int main(void) {
     glfwSetMouseButtonCallback(w.window, glfw_callback_mouse_button);
     glfwSetScrollCallback(w.window, glfw_callback_scroll);
 
-    //Editor editor = editor_create(&w, &static_arena, font_atlas);
+    const char *file = NULL;
+    if (argc > 1) file = argv[1];
+    Editor editor = editor_create(&static_arena, file);
 
     // glyph draw buffer ------------------------------------------------
 
@@ -970,42 +976,26 @@ int main(void) {
     F32 frame = 0.0;
     while (!glfwWindowShouldClose(w.window)) {
         w.inputs.char_event_count = 0;
+        w.inputs.key_event_count = 0;
         w.inputs.mouse_held_prev = w.inputs.mouse_held;
-        w.inputs.mouse_held = 0;
         w.inputs.scroll = 0.f;
+        w.inputs.key_held_prev = w.inputs.key_held;
         glfwPollEvents();
         w.inputs.mouse_in_window = glfwGetWindowAttrib(w.window, GLFW_HOVERED) != 0;
         w.inputs.mouse_pressed = w.inputs.mouse_held & ~w.inputs.mouse_held_prev;
         w.inputs.mouse_released = w.inputs.mouse_held_prev & ~w.inputs.mouse_held;
+        w.inputs.key_pressed = w.inputs.key_held & ~w.inputs.key_held_prev;
+        w.inputs.key_released = w.inputs.key_held_prev & ~w.inputs.key_held;
 
         // UPDATE ----------------------------------------------------------------
 
-        GlyphSlice glyphs = { NULL, 0 };
-        //GlyphSlice glyphs = editor_update(&w);
+        Rect viewport = { 0.f, 0.f, 800.f, 800.f };
+        GlyphSlice glyphs = editor_update(&w, &editor, font_atlas, viewport);
         U64 glyphs_size = glyphs.count * sizeof(Glyph);
 
+        if (w.should_close) glfwSetWindowShouldClose(w.window, GLFW_TRUE);
+
         // write glyphs buffer
-
-        //const char *text = "Hello, World!";
-        //U64 glyphs_count = strlen(text);
-        //U64 glyphs_size = glyphs_count * sizeof(Glyph);
-        //Glyph *glyphs = ARENA_ALLOC_ARRAY(&w.frame_arena, *glyphs, glyphs_count);
-
-        //F32 pen_x = 50.f;
-        //for (U64 ch_i = 0; ch_i < glyphs_count; ++ch_i) {
-        //    char ch = text[ch_i];
-        //    U32 glyph_idx = glyph_lookup_idx(FontSize_16, ch);
-        //    GlyphInfo info = font_atlas->glyph_info[glyph_idx];
-
-        //    glyphs[ch_i] = (Glyph) {
-        //        .x = pen_x + info.offset_x,
-        //        .y = 400.f + info.offset_y,
-        //        .glyph_idx = glyph_idx,
-        //        .colour = { 255, 255, 255, 255 },
-        //    };
-
-        //    pen_x += info.advance_width;
-        //}
 
         if (glyphs.count) {
             Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, glyphs_size, 16);
@@ -1167,7 +1157,13 @@ int main(void) {
         // START RENDER ----------------------------------------------------------
 
         {
-            VkClearValue clear_colour = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+            U8 background_u8[4] = BACKGROUND;
+            VkClearValue clear_colour = { .color = { .float32 = {
+                (float)background_u8[0] / 255.f,
+                (float)background_u8[1] / 255.f,
+                (float)background_u8[2] / 255.f,
+                (float)background_u8[3] / 255.f,
+            }}};
             VkRenderPassBeginInfo pass_info = {
                 .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
                 .renderPass = w.pass,
@@ -1254,23 +1250,28 @@ int main(void) {
 }
 
 void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mods) {
-    // TODO
-    (void)key;
-    (void)window;
-    (void)scan;
-    (void)action;
-    (void)mods;
-    //if (action != GLFW_
-    //W *w = glfwGetWindowUserPointer(window);
-    //w->inputs.
+    W *w = glfwGetWindowUserPointer(window);
+    if (w->inputs.key_event_count == MAX_EVENTS) return;
+    U64 kmask = key_mask(key);
+    U32 mmask = mod_mask(key);
+
+    if (action == GLFW_PRESS) {
+        w->inputs.key_events[w->inputs.key_event_count++] = (KeyEvent) { key, scan, action, mods };
+
+        w->inputs.key_held |= kmask;
+        w->inputs.modifiers |= mmask;
+    } else if (action == GLFW_REPEAT) {
+        w->inputs.key_repeating |= kmask;
+    } else if (action == GLFW_RELEASE) {
+        w->inputs.key_repeating &= ~kmask;
+        w->inputs.key_held &= ~kmask;
+        w->inputs.modifiers &= ~mmask;
+    }
 }
 
 void glfw_callback_char(GLFWwindow *window, unsigned int codepoint) {
     W *w = glfwGetWindowUserPointer(window);
-    
-    // if we encounter too many events, replace the last event.
-    if (w->inputs.char_event_count == MAX_EVENTS) w->inputs.char_event_count--;
-
+    if (w->inputs.char_event_count == MAX_EVENTS) return;
     w->inputs.char_events[w->inputs.char_event_count++] = (CharEvent) { codepoint };
 }
 
@@ -1291,7 +1292,7 @@ void glfw_callback_mouse_button(GLFWwindow *window, int button, int action, int 
 }
 
 void glfw_callback_scroll(GLFWwindow *window, double x, double y) {
-    (void)y;
+    (void)x;
     W *w = glfwGetWindowUserPointer(window);
-    w->inputs.scroll = (F32)x;
+    w->inputs.scroll = (F32)y;
 }
