@@ -24,9 +24,18 @@ window_create(Arena *arena);
 void
 window_destroy(W *w);
 
-VkDescriptorSet descriptor_set_glyphs_create(W *w, FontAtlas *font_atlas, VkBuffer glyphs_buffer);
+VkDescriptorSet
+descriptor_set_glyphs_create(W *w, FontAtlas *font_atlas, VkBuffer glyphs_buffer);
 
-void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set);
+void
+descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set);
+
+void glfw_callback_key          (GLFWwindow *window, int key, int scan, int action, int mods);
+void glfw_callback_char         (GLFWwindow *window, unsigned int codepoint);
+void glfw_callback_mouse_pos    (GLFWwindow *window, double x, double y);
+void glfw_callback_mouse_enter  (GLFWwindow *window, int entered);
+void glfw_callback_mouse_button (GLFWwindow *window, int button, int action, int mods);
+void glfw_callback_scroll       (GLFWwindow *window, double x, double y);
 
 int
 main(void);
@@ -648,6 +657,10 @@ W window_create(Arena *arena) {
         }
     }
 
+    Inputs inputs = {
+        .char_events = ARENA_ALLOC_ARRAY(arena, CharEvent, MAX_EVENTS),
+    };
+
     // CREATE W -------------------------------------------------------------------------------
 
     W w = { 
@@ -657,7 +670,7 @@ W window_create(Arena *arena) {
         pass, sc_framebuffers, pl_layout, pl,
         descriptor_pool, descriptor_set_layout_glyphs,
 
-        frame_arena, staging
+        inputs, frame_arena, staging
     };
 
     // ALLOC GPU BUFFERS ---------------------------------------------------------------------
@@ -921,6 +934,18 @@ int main(void) {
     const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Medium.ttf";
     FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
 
+    // Editor -----------------------------------------------------------
+
+    glfwSetWindowUserPointer(w.window, &w);
+    glfwSetCharCallback(w.window, glfw_callback_char);
+    glfwSetKeyCallback(w.window, glfw_callback_key);
+    glfwSetCursorPosCallback(w.window, glfw_callback_mouse_pos);
+    glfwSetCursorEnterCallback(w.window, glfw_callback_mouse_enter);
+    glfwSetMouseButtonCallback(w.window, glfw_callback_mouse_button);
+    glfwSetScrollCallback(w.window, glfw_callback_scroll);
+
+    //Editor editor = editor_create(&w, &static_arena, font_atlas);
+
     // glyph draw buffer ------------------------------------------------
 
     VkBuffer glyph_draw_buffer;
@@ -950,32 +975,36 @@ int main(void) {
 
         // UPDATE ----------------------------------------------------------------
 
+        GlyphSlice glyphs = { NULL, 0 };
+        //GlyphSlice glyphs = editor_update(&w);
+        U64 glyphs_size = glyphs.count * sizeof(Glyph);
+
         // write glyphs buffer
 
-        const char *text = "Hello, World!";
-        U64 glyphs_count = strlen(text);
-        U64 glyphs_size = glyphs_count * sizeof(Glyph);
-        Glyph *glyphs = ARENA_ALLOC_ARRAY(&w.frame_arena, *glyphs, glyphs_count);
+        //const char *text = "Hello, World!";
+        //U64 glyphs_count = strlen(text);
+        //U64 glyphs_size = glyphs_count * sizeof(Glyph);
+        //Glyph *glyphs = ARENA_ALLOC_ARRAY(&w.frame_arena, *glyphs, glyphs_count);
 
-        F32 pen_x = 50.f;
-        for (U64 ch_i = 0; ch_i < glyphs_count; ++ch_i) {
-            char ch = text[ch_i];
-            U32 glyph_idx = glyph_lookup_idx(FontSize_16, ch);
-            GlyphInfo info = font_atlas->glyph_info[glyph_idx];
+        //F32 pen_x = 50.f;
+        //for (U64 ch_i = 0; ch_i < glyphs_count; ++ch_i) {
+        //    char ch = text[ch_i];
+        //    U32 glyph_idx = glyph_lookup_idx(FontSize_16, ch);
+        //    GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
-            glyphs[ch_i] = (Glyph) {
-                .x = pen_x + info.offset_x,
-                .y = 400.f + info.offset_y,
-                .glyph_idx = glyph_idx,
-                .colour = { 255, 255, 255, 255 },
-            };
+        //    glyphs[ch_i] = (Glyph) {
+        //        .x = pen_x + info.offset_x,
+        //        .y = 400.f + info.offset_y,
+        //        .glyph_idx = glyph_idx,
+        //        .colour = { 255, 255, 255, 255 },
+        //    };
 
-            pen_x += info.advance_width;
-        }
+        //    pen_x += info.advance_width;
+        //}
 
-        {
+        if (glyphs.count) {
             Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, glyphs_size, 16);
-            memcpy(staging_glyph_draws, glyphs, glyphs_size);
+            memcpy(staging_glyph_draws, glyphs.ptr, glyphs_size);
 
             VkBufferCopy *buffer_copy = ARENA_ALLOC(&w.frame_arena, *buffer_copy);
             *buffer_copy = (VkBufferCopy) {
@@ -1162,9 +1191,9 @@ int main(void) {
                 NULL
             );
 
-            if (glyphs_count) {
-                assert(glyphs_count < MAX_GLYPHS);
-                vkCmdDraw(w.cmd_buffer, 4, (U32)glyphs_count, 0, 0);
+            if (glyphs.count) {
+                assert(glyphs.count < MAX_GLYPHS);
+                vkCmdDraw(w.cmd_buffer, 4, (U32)glyphs.count, 0, 0);
             }
         }
 
@@ -1217,4 +1246,58 @@ int main(void) {
     window_destroy(&w);
     arena_destroy(&static_arena);
     return 0;
+}
+
+void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mods) {
+    // TODO
+    (void)key;
+    (void)window;
+    (void)scan;
+    (void)action;
+    (void)mods;
+    //if (action != GLFW_
+    //W *w = glfwGetWindowUserPointer(window);
+    //w->inputs.
+}
+
+void glfw_callback_char(GLFWwindow *window, unsigned int codepoint) {
+    W *w = glfwGetWindowUserPointer(window);
+    
+    // if we encounter too many events, replace the last event.
+    if (w->inputs.char_event_count == MAX_EVENTS) w->inputs.char_event_count--;
+
+    w->inputs.char_events[w->inputs.char_event_count++] = (CharEvent) { codepoint };
+    printf("char %u\n", codepoint);
+}
+
+void glfw_callback_mouse_pos(GLFWwindow *window, double x, double y) {
+    W *w = glfwGetWindowUserPointer(window);
+    w->inputs.mouse_x = (F32)x;
+    w->inputs.mouse_y = (F32)y;
+    printf("mouse %f %f\n", x, y);
+}
+
+void glfw_callback_mouse_enter(GLFWwindow *window, int entered) {
+    W *w = glfwGetWindowUserPointer(window);
+    w->inputs.mouse_in_window = entered != 0;
+    printf("mouse entered %i\n", entered);
+}
+
+void glfw_callback_mouse_button(GLFWwindow *window, int button, int action, int mods) {
+    W *w = glfwGetWindowUserPointer(window);
+    if (action == GLFW_PRESS) {
+        w->inputs.mouse_held |= (1 << button);
+    } else if (action == GLFW_RELEASE) {
+        w->inputs.mouse_held &= ~(1 << button);
+    }
+
+    w->inputs.mouse_pressed = w->inputs.mouse_held & ~w->inputs.mouse_held_prev;
+    w->inputs.mouse_released = w->inputs.mouse_held_prev & ~w->inputs.mouse_held;
+    printf("mouse button %i %i\n", button, action);
+}
+
+void glfw_callback_scroll(GLFWwindow *window, double x, double y) {
+    W *w = glfwGetWindowUserPointer(window);
+    w->inputs.scroll = (F32)x;
+    printf("scroll %f\n", x);
 }

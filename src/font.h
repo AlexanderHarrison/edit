@@ -25,6 +25,11 @@ typedef struct Glyph {
     RGBA8 colour;
 } Glyph;
 
+typedef struct GlyphSlice {
+    Glyph *ptr;
+    U64 count;
+} GlyphSlice;
+
 typedef struct {
     U32 x, y;
     U32 width;

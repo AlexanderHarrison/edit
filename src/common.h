@@ -18,6 +18,30 @@
 #define arena_reset(A, B) arena_reset_safe(A, B)
 #endif
 
+#define MAX_EVENTS 128
+
+typedef struct CharEvent {
+    U32 codepoint;
+} CharEvent;
+
+typedef struct Inputs {
+    CharEvent *char_events;
+    U32 char_event_count;
+
+    // mouse
+    bool mouse_in_window;
+    F32 mouse_x, mouse_y;
+    U32 mouse_held;
+    U32 mouse_held_prev;
+    U32 mouse_pressed;
+    U32 mouse_released;
+    F32 scroll;
+} Inputs;
+
+typedef struct Rect {
+    F32 x, y, w, h;
+} Rect;
+
 typedef struct RGBA8 {
     U8 r, g, b, a;
 } RGBA8;
@@ -89,6 +113,7 @@ typedef struct {
 
     // PER FRAME DATA -------------------------------
 
+    Inputs inputs;
     Arena frame_arena;
     StagingBuffer staging_buffer;
 } W;
