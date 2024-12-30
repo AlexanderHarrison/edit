@@ -33,7 +33,6 @@ descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set);
 void glfw_callback_key          (GLFWwindow *window, int key, int scan, int action, int mods);
 void glfw_callback_char         (GLFWwindow *window, unsigned int codepoint);
 void glfw_callback_mouse_pos    (GLFWwindow *window, double x, double y);
-void glfw_callback_mouse_enter  (GLFWwindow *window, int entered);
 void glfw_callback_mouse_button (GLFWwindow *window, int button, int action, int mods);
 void glfw_callback_scroll       (GLFWwindow *window, double x, double y);
 
@@ -120,7 +119,7 @@ W window_create(Arena *arena) {
         VK_ASSERT(vkEnumeratePhysicalDevices(instance, &device_count, devices));
 
         typedef enum {
-            SWAPCHAIN = (1 << 0),
+            SWAPCHAIN = (1u << 0),
 
             ALL = SWAPCHAIN,
         } Extensions;
@@ -940,7 +939,6 @@ int main(void) {
     glfwSetCharCallback(w.window, glfw_callback_char);
     glfwSetKeyCallback(w.window, glfw_callback_key);
     glfwSetCursorPosCallback(w.window, glfw_callback_mouse_pos);
-    glfwSetCursorEnterCallback(w.window, glfw_callback_mouse_enter);
     glfwSetMouseButtonCallback(w.window, glfw_callback_mouse_button);
     glfwSetScrollCallback(w.window, glfw_callback_scroll);
 
@@ -971,7 +969,14 @@ int main(void) {
 
     F32 frame = 0.0;
     while (!glfwWindowShouldClose(w.window)) {
+        w.inputs.char_event_count = 0;
+        w.inputs.mouse_held_prev = w.inputs.mouse_held;
+        w.inputs.mouse_held = 0;
+        w.inputs.scroll = 0.f;
         glfwPollEvents();
+        w.inputs.mouse_in_window = glfwGetWindowAttrib(w.window, GLFW_HOVERED) != 0;
+        w.inputs.mouse_pressed = w.inputs.mouse_held & ~w.inputs.mouse_held_prev;
+        w.inputs.mouse_released = w.inputs.mouse_held_prev & ~w.inputs.mouse_held;
 
         // UPDATE ----------------------------------------------------------------
 
@@ -1267,37 +1272,26 @@ void glfw_callback_char(GLFWwindow *window, unsigned int codepoint) {
     if (w->inputs.char_event_count == MAX_EVENTS) w->inputs.char_event_count--;
 
     w->inputs.char_events[w->inputs.char_event_count++] = (CharEvent) { codepoint };
-    printf("char %u\n", codepoint);
 }
 
 void glfw_callback_mouse_pos(GLFWwindow *window, double x, double y) {
     W *w = glfwGetWindowUserPointer(window);
     w->inputs.mouse_x = (F32)x;
     w->inputs.mouse_y = (F32)y;
-    printf("mouse %f %f\n", x, y);
-}
-
-void glfw_callback_mouse_enter(GLFWwindow *window, int entered) {
-    W *w = glfwGetWindowUserPointer(window);
-    w->inputs.mouse_in_window = entered != 0;
-    printf("mouse entered %i\n", entered);
 }
 
 void glfw_callback_mouse_button(GLFWwindow *window, int button, int action, int mods) {
+    (void)mods;
     W *w = glfwGetWindowUserPointer(window);
     if (action == GLFW_PRESS) {
-        w->inputs.mouse_held |= (1 << button);
+        w->inputs.mouse_held |= (1u << button);
     } else if (action == GLFW_RELEASE) {
-        w->inputs.mouse_held &= ~(1 << button);
+        w->inputs.mouse_held &= ~(1u << button);
     }
-
-    w->inputs.mouse_pressed = w->inputs.mouse_held & ~w->inputs.mouse_held_prev;
-    w->inputs.mouse_released = w->inputs.mouse_held_prev & ~w->inputs.mouse_held;
-    printf("mouse button %i %i\n", button, action);
 }
 
 void glfw_callback_scroll(GLFWwindow *window, double x, double y) {
+    (void)y;
     W *w = glfwGetWindowUserPointer(window);
     w->inputs.scroll = (F32)x;
-    printf("scroll %f\n", x);
 }
