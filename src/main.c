@@ -6,9 +6,6 @@
 #include "editor.h"
 #include "editor.c"
 
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-
 #define WIDTH 800
 #define HEIGHT 800
 
