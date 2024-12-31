@@ -1,5 +1,14 @@
 #include "editor.h"
 
+// h - expand selection group
+// H - expand to largest group
+// l - contract selection group
+// L - expand to smallest group
+// j - select next group
+// k - select previous group
+// J - expand selection to next group
+// K - expand selection to previous group
+
 typedef struct Range {
     I64 start;
     I64 end;
@@ -12,15 +21,22 @@ Range editor_group_next(Editor *ed, Group group, I64 current_group_end);
 Range editor_group_prev(Editor *ed, Group group, I64 current_group_start);
 I64 editor_line_index(Editor *ed, I64 byte);
 Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v);
+void editor_selection_trim(Editor *ed);
 
 U8 editor_text(Editor *ed, I64 byte);
 void editor_text_remove(Editor *ed, I64 start, I64 end);
 void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
 
-Editor editor_create(Arena *arena, const char *initial_filepath) {
+Editor editor_create(Arena *arena, const char *filepath) {
     Glyph *glyphs = ARENA_ALLOC_ARRAY(arena, *glyphs, MAX_GLYPHS);
 
+    U32 filename_length = strlen(filepath);
+    U8 *arena_filename = ARENA_ALLOC_ARRAY(arena, U8, filename_length+1);
+    memcpy(arena_filepath, filepath, filename_length+1);
+
     Editor ed = {
+        .filename = arena_filename,
+        .filename_length = filename_length,
         .glyphs = glyphs,
         .selection_group = Group_Line,
         .mode_input_text = ARENA_ALLOC_ARRAY(arena, U8, MODE_INPUT_TEXT_MAX),
@@ -39,6 +55,20 @@ void editor_destroy(Editor *ed) {
 
 static inline bool is(U64 held, U64 mask) {
     return (held & mask) == mask;
+}
+
+void editor_group_expand(Editor *ed) {
+    if (ed->selection_group == 0)
+        ed->selection_group = Group_Count - 1;
+    else
+        ed->selection_group--;
+}
+
+void editor_group_contract(Editor *ed) {
+    if (ed->selection_group == Group_Count - 1)
+        ed->selection_group = 0;
+    else
+        ed->selection_group++;
 }
 
 #define SELECTION_GROUP_BAR_WIDTH 2.f
@@ -65,19 +95,23 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             (void)shift;
 
             if (is(pressed, key_mask(GLFW_KEY_H))) {
-                if (ed->selection_group == 0) {
-                    ed->selection_group = Group_Count - 1;
-                } else {
-                    ed->selection_group--;
-                }
+                if (shift)
+                    ed->selection_group = 0;
+                else
+                    editor_group_expand(ed);
             }
 
             if (is(pressed, key_mask(GLFW_KEY_L))) {
-                if (ed->selection_group == Group_Count - 1) {
-                    ed->selection_group = 0;
-                } else {
-                    ed->selection_group++;
-                }
+                if (shift)
+                    ed->selection_group = Group_Count - 1;
+                else
+                    editor_group_contract(ed);
+            }
+
+            if (ctrl && is(pressed, key_mask(GLFW_KEY_S))) {
+                assert(ed->text_length >= 0);
+                assert(write_file(ed->filename, ed->text, (U64)ed->text_length) == 0);
+                printf("wrote %li bytes to %s\n", ed->text_length, ed->filename);
             }
 
             if (is(pressed | repeating, key_mask(GLFW_KEY_J))) {
@@ -110,12 +144,54 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             }
 
             if (is(pressed, key_mask(GLFW_KEY_C))) {
+                if (shift)
+                    editor_selection_trim(ed);
                 ed->mode = Mode_Insert;
                 ed->mode_data.insert_cursor = ed->selection_a;
                 editor_text_remove(ed, ed->selection_a, ed->selection_b);
             }
 
-            if (is(pressed | repeating, key_mask(GLFW_KEY_D))) {
+            if (is(pressed, key_mask(GLFW_KEY_I))) {
+                if (shift)
+                    editor_selection_trim(ed);
+                ed->mode = Mode_Insert;
+                ed->mode_data.insert_cursor = ed->selection_a;
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_A))) {
+                if (shift)
+                    editor_selection_trim(ed);
+                ed->mode = Mode_Insert;
+                ed->mode_data.insert_cursor = ed->selection_b;
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_M))) {
+                editor_selection_trim(ed);
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_W))) {
+                editor_selection_trim(ed);
+                if (shift)
+                    editor_group_expand(ed);
+                else
+                    editor_group_contract(ed);
+                Range range = editor_group(ed, ed->selection_group, ed->selection_a);
+                ed->selection_a = range.start;
+                ed->selection_b = range.end;
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_E))) {
+                editor_selection_trim(ed);
+                if (shift)
+                    editor_group_expand(ed);
+                else
+                    editor_group_contract(ed);
+                Range range = editor_group(ed, ed->selection_group, ed->selection_b);
+                ed->selection_a = range.start;
+                ed->selection_b = range.end;
+            }
+
+            if (!ctrl && is(pressed | repeating, key_mask(GLFW_KEY_D))) {
                 editor_text_remove(ed, ed->selection_a, ed->selection_b);
                 Range range = editor_group(ed, ed->selection_group, ed->selection_a);
                 ed->selection_a = range.start;
@@ -157,6 +233,11 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 U8 newline = '\n';
                 editor_text_insert(ed, ed->mode_data.insert_cursor, &newline, 1);
                 ed->mode_data.insert_cursor += 1;
+            }
+
+            if (is(special_pressed, special_mask(GLFW_KEY_BACKSPACE))) {
+                ed->mode_data.insert_cursor -= 1;
+                editor_text_remove(ed, ed->mode_data.insert_cursor, ed->mode_data.insert_cursor+1);
             }
 
             break;
@@ -619,4 +700,15 @@ void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) {
     if (ed->text[ed->text_length-1] != '\n') {
         ed->text[ed->text_length++] = '\n';
     }
+}
+
+void editor_selection_trim(Editor *ed) {
+    I64 a = ed->selection_a;
+    I64 b = ed->selection_b;
+    while (a < b && char_whitespace(editor_text(ed, a)))
+        a++;
+    while (a < b && char_whitespace(editor_text(ed, b-1)))
+        b--;
+    ed->selection_a = a;
+    ed->selection_b = b;
 }

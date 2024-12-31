@@ -32,6 +32,9 @@ typedef enum Mode {
 } Mode;
 
 typedef struct Editor {
+    U8 *filename;
+    U32 filename_length;
+
     Glyph *glyphs; // cache to avoid reallocations
     U8 *text;
     I64 text_length;

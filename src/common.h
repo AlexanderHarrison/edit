@@ -15,7 +15,7 @@
 
 #define BACKGROUND { 4, 4, 4, 255 }
 #define FOREGROUND { 170, 170, 170, 255 }
-#define SELECT { 30, 30, 100, 255 }
+#define SELECT { 40, 40, 40, 255 }
 #define COMMENT { 230, 100, 100, 255 }
 #define STRING { 100, 160, 100, 255 }
 
