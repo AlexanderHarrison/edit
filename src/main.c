@@ -981,6 +981,7 @@ int main(int argc, char *argv[]) {
         w.inputs.scroll = 0.f;
         w.inputs.key_held_prev = w.inputs.key_held;
         w.inputs.key_repeating = 0;
+        w.inputs.key_special_pressed = 0;
         glfwPollEvents();
         w.inputs.mouse_in_window = glfwGetWindowAttrib(w.window, GLFW_HOVERED) != 0;
         w.inputs.mouse_pressed = w.inputs.mouse_held & ~w.inputs.mouse_held_prev;
@@ -1255,12 +1256,15 @@ int main(int argc, char *argv[]) {
 void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mods) {
     W *w = glfwGetWindowUserPointer(window);
     if (w->inputs.key_event_count == MAX_EVENTS) return;
+
     U64 kmask = key_mask(key);
     U32 mmask = mod_mask(key);
+    U64 smask = special_mask(key);
 
     if (action == GLFW_PRESS) {
         w->inputs.key_events[w->inputs.key_event_count++] = (KeyEvent) { key, scan, action, mods };
 
+        w->inputs.key_special_pressed |= smask;
         w->inputs.key_held |= kmask;
         w->inputs.modifiers |= mmask;
     } else if (action == GLFW_REPEAT) {

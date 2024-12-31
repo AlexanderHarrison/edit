@@ -15,7 +15,7 @@
 
 #define BACKGROUND { 4, 4, 4, 255 }
 #define FOREGROUND { 170, 170, 170, 255 }
-#define HIGHLIGHT { 20, 20, 20, 255 }
+#define SELECT { 30, 30, 100, 255 }
 #define COMMENT { 230, 100, 100, 255 }
 #define STRING { 100, 160, 100, 255 }
 
@@ -49,12 +49,14 @@ typedef struct Inputs {
     U32 char_event_count;
     U32 key_event_count;
 
-    // starting from GLFW_SPACE
+    // starting from GLFW_KEY_SPACE
     U64 key_held;
     U64 key_held_prev;
     U64 key_pressed;
     U64 key_released;
     U64 key_repeating;
+    // starting from GLFW_KEY_ESCAPE
+    U64 key_special_pressed;
     U32 modifiers;
 
     // mouse
@@ -91,6 +93,13 @@ static inline U32 mod_mask(int glfw_key) {
         default:
             return 0;
     }
+}
+
+static inline U64 special_mask(int glfw_key) {
+    if (glfw_key < GLFW_KEY_ESCAPE || GLFW_KEY_ESCAPE + 64 <= glfw_key)
+        return 0;
+    else
+        return 1ul << (glfw_key - GLFW_KEY_ESCAPE);
 }
 
 typedef struct Rect {
