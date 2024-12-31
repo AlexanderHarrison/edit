@@ -980,6 +980,7 @@ int main(int argc, char *argv[]) {
         w.inputs.mouse_held_prev = w.inputs.mouse_held;
         w.inputs.scroll = 0.f;
         w.inputs.key_held_prev = w.inputs.key_held;
+        w.inputs.key_repeating = 0;
         glfwPollEvents();
         w.inputs.mouse_in_window = glfwGetWindowAttrib(w.window, GLFW_HOVERED) != 0;
         w.inputs.mouse_pressed = w.inputs.mouse_held & ~w.inputs.mouse_held_prev;
@@ -1239,6 +1240,8 @@ int main(int argc, char *argv[]) {
 
     VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
 
+    editor_destroy(&editor);
+
     gpu_free(&w, glyph_draw_buffer_memory);
     vkDestroyBuffer(w.device, glyph_draw_buffer, NULL);
 
@@ -1263,7 +1266,6 @@ void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mo
     } else if (action == GLFW_REPEAT) {
         w->inputs.key_repeating |= kmask;
     } else if (action == GLFW_RELEASE) {
-        w->inputs.key_repeating &= ~kmask;
         w->inputs.key_held &= ~kmask;
         w->inputs.modifiers &= ~mmask;
     }

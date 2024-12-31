@@ -11,9 +11,16 @@
 #define CODE_LINE_SPACING 15.f
 #define CODE_SCROLL_SPEED_SLOW 0.2f
 #define CODE_SCROLL_SPEED_FAST 0.6f
+#define ANIM_EXP_FACTOR 0.2f
+
 #define BACKGROUND { 4, 4, 4, 255 }
 #define FOREGROUND { 170, 170, 170, 255 }
-#define HIGHLIGHT { 30, 30, 30, 255 }
+#define HIGHLIGHT { 20, 20, 20, 255 }
+#define COMMENT { 230, 100, 100, 255 }
+#define STRING { 100, 160, 100, 255 }
+
+#define MAX_GLYPHS 4096
+#define MAX_GLYPHS_SIZE (MAX_GLYPHS*sizeof(Glyph))
 
 #define KB (1ull << 10)
 #define MB (1ull << 20)
