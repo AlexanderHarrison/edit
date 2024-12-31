@@ -32,8 +32,9 @@ typedef enum Mode {
 } Mode;
 
 typedef struct Editor {
-    U8 *filename;
-    U32 filename_length;
+    Arena *arena;
+    U8 *filepath;
+    U32 filepath_length;
 
     Glyph *glyphs; // cache to avoid reallocations
     U8 *text;
@@ -56,7 +57,7 @@ typedef struct Editor {
 } Editor;
 
 Editor
-editor_create(Arena *arena, const char *initial_filename);
+editor_create(Arena *arena, const char *initial_filepath);
 
 void
 editor_destroy(Editor *ed);

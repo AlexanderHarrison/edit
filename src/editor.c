@@ -30,19 +30,14 @@ void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
 Editor editor_create(Arena *arena, const char *filepath) {
     Glyph *glyphs = ARENA_ALLOC_ARRAY(arena, *glyphs, MAX_GLYPHS);
 
-    U32 filename_length = strlen(filepath);
-    U8 *arena_filename = ARENA_ALLOC_ARRAY(arena, U8, filename_length+1);
-    memcpy(arena_filepath, filepath, filename_length+1);
-
     Editor ed = {
-        .filename = arena_filename,
-        .filename_length = filename_length,
+        .arena = arena,
         .glyphs = glyphs,
         .selection_group = Group_Line,
         .mode_input_text = ARENA_ALLOC_ARRAY(arena, U8, MODE_INPUT_TEXT_MAX),
     };
 
-    assert(editor_load_filepath(&ed, initial_filepath) == 0);
+    assert(editor_load_filepath(&ed, filepath) == 0);
 
     ed.selection_b = editor_group(&ed, Group_Line, 0).end;
 
@@ -109,9 +104,11 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             }
 
             if (ctrl && is(pressed, key_mask(GLFW_KEY_S))) {
-                assert(ed->text_length >= 0);
-                assert(write_file(ed->filename, ed->text, (U64)ed->text_length) == 0);
-                printf("wrote %li bytes to %s\n", ed->text_length, ed->filename);
+                if (ed->filepath) {
+                    assert(ed->text_length >= 0);
+                    assert(write_file((char*)ed->filepath, ed->text, (U64)ed->text_length) == 0);
+                    printf("wrote %li bytes to %s\n", ed->text_length, ed->filepath);
+                }
             }
 
             if (is(pressed | repeating, key_mask(GLFW_KEY_J))) {
@@ -475,6 +472,10 @@ Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *tex
 int editor_load_filepath(Editor *ed, const char *filepath) {
     if (filepath == NULL) return 0;
 
+    U32 filepath_length = (U32)strlen(filepath);
+    U8 *arena_filepath = ARENA_ALLOC_ARRAY(ed->arena, U8, filepath_length+1);
+    memcpy(arena_filepath, filepath, filepath_length+1);
+
     editor_dealloc_file(ed);
 
     if (ed->text == NULL) {
@@ -485,11 +486,15 @@ int editor_load_filepath(Editor *ed, const char *filepath) {
     Bytes b = read_file_to(filepath, ed->text, TEXT_MAX_LENGTH);
     assert(b.ptr != NULL);
     ed->text_length = (I64)b.len;
+    ed->filepath = arena_filepath;
+    ed->filepath_length = filepath_length;
 
     return 0;
 }
 
 void editor_dealloc_file(Editor *ed) {
+    ed->filepath_length = 0;
+    ed->filepath = NULL;
     ed->text_length = 0;
     ed->text = NULL;
 }
