@@ -14,6 +14,10 @@ struct Glyph {
 layout(set = 0, binding = 1) readonly buffer glyph_locations_SSBO { GlyphLoc glyph_locations[]; };
 layout(set = 0, binding = 2) readonly buffer glyphs_to_draw_SSBO { Glyph glyphs_to_draw[]; };
 
+layout(set = 0, binding = 3) readonly uniform StaticData {
+    vec2 viewport_size;
+} static_data;
+
 layout(location = 0) out vec4 frag_colour;
 layout(location = 1) out vec2 glyph_uv;
 
@@ -34,10 +38,8 @@ void main() {
             float(glyph.glyph_idx & 0xFFFu)
         );
     }
-    dims /= 800.0;
-
-    vec2 glyph_position = glyph.position / 800.0;
-    gl_Position = vec4((uv * dims + glyph_position) * 2.0 - 1.0, 0.0, 1.0);
+    vec2 glyph_position = glyph.position;
+    gl_Position = vec4((uv * dims + glyph_position) / static_data.viewport_size * 2.0 - 1.0, 0.0, 1.0);
 
     uint colour_packed = glyph.colour;
     frag_colour = vec4(

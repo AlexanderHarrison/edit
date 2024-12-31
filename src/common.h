@@ -110,6 +110,10 @@ typedef struct RGBA8 {
     U8 r, g, b, a;
 } RGBA8;
 
+typedef struct StaticDataUniform {
+    F32 viewport_size[2];
+} StaticDataUniform;
+
 typedef struct StagingCopyBufferList {
     struct StagingCopyBufferList *next;
     VkBuffer target_buffer;
@@ -142,6 +146,16 @@ typedef struct {
     ImageTransitionList *image_transitions;
 } StagingBuffer;
 
+typedef struct Swapchain {
+    VkSwapchainKHR sc;
+    VkImage *images;
+    VkImageView *image_views;
+    VkFramebuffer* framebuffers;
+    U32 image_count;
+    U32 width;
+    U32 height;
+} Swapchain;
+
 typedef struct {
     // STATIC DATA -------------------------------
 
@@ -157,23 +171,23 @@ typedef struct {
 
     VkSurfaceKHR surface;
 
-    VkSwapchainKHR sc;
-    VkExtent2D sc_extent;
-    VkImage *sc_images;
-    VkImageView *sc_image_views;
-    U64 sc_image_count;
+    Arena sc_arena;
+    Swapchain *sc;
 
     VkSemaphore image_available;
     VkSemaphore render_finished;
     VkFence in_flight;
 
     VkRenderPass pass;
-    VkFramebuffer* sc_framebuffers;
     VkPipelineLayout pl_layout;
     VkPipeline pl;
 
     VkDescriptorPool descriptor_pool;
     VkDescriptorSetLayout descriptor_set_layout_glyphs;
+
+    StaticDataUniform static_data_uniform;
+    VkBuffer static_data_uniform_buffer;
+    VkDeviceMemory static_data_uniform_buffer_memory;
 
     // PER FRAME DATA -------------------------------
 

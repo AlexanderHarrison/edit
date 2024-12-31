@@ -6,8 +6,8 @@
 #include "editor.h"
 #include "editor.c"
 
-#define WIDTH 800
-#define HEIGHT 800
+#define INITIAL_WIDTH 1200
+#define INITIAL_HEIGHT 800
 
 #define PROJECT_NAME "Editor"
 
@@ -28,6 +28,18 @@ descriptor_set_glyphs_create(W *w, FontAtlas *font_atlas, VkBuffer glyphs_buffer
 void
 descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set);
 
+Swapchain *
+swapchain_create(
+    VkDevice device,
+    VkPhysicalDevice phy_device,
+    VkSurfaceKHR surface,
+    VkRenderPass pass,
+    Arena *arena
+);
+
+void
+swapchain_destroy(VkDevice device, Swapchain *sc);
+
 void glfw_callback_key          (GLFWwindow *window, int key, int scan, int action, int mods);
 void glfw_callback_char         (GLFWwindow *window, unsigned int codepoint);
 void glfw_callback_mouse_pos    (GLFWwindow *window, double x, double y);
@@ -41,8 +53,8 @@ W window_create(Arena *arena) {
 
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, PROJECT_NAME, NULL, NULL);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    GLFWwindow *window = glfwCreateWindow(INITIAL_WIDTH, INITIAL_HEIGHT, PROJECT_NAME, NULL, NULL);
 
     U32 glfw_ext_count;
     const char **glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
@@ -96,7 +108,6 @@ W window_create(Arena *arena) {
 
     VkSurfaceKHR surface;
     VK_ASSERT(glfwCreateWindowSurface(instance, window, NULL, &surface));
-
 
     // PHYSICAL DEVICES --------------------------------------------------------------------
 
@@ -156,7 +167,7 @@ W window_create(Arena *arena) {
         U32 family_count;
         vkGetPhysicalDeviceQueueFamilyProperties(phy_device, &family_count, NULL);
         assert(family_count != 0);
-        VkQueueFamilyProperties *families = ARENA_ALLOC_ARRAY(arena, sizeof(VkQueueFamilyProperties), family_count);
+        VkQueueFamilyProperties *families = ARENA_ALLOC_ARRAY(arena, VkQueueFamilyProperties, family_count);
         vkGetPhysicalDeviceQueueFamilyProperties(phy_device, &family_count, families);
 
         bool family_found = false;
@@ -220,7 +231,7 @@ W window_create(Arena *arena) {
         U32 present_mode_count;
         VK_ASSERT(vkGetPhysicalDeviceSurfacePresentModesKHR(phy_device, surface, &present_mode_count, NULL));
         assert(present_mode_count != 0);
-        VkPresentModeKHR *present_modes = ARENA_ALLOC_ARRAY(arena, sizeof(VkPresentModeKHR), present_mode_count);
+        VkPresentModeKHR *present_modes = ARENA_ALLOC_ARRAY(arena, VkPresentModeKHR, present_mode_count);
         VK_ASSERT(vkGetPhysicalDeviceSurfacePresentModesKHR(phy_device, surface, &present_mode_count, present_modes));
         bool mode_found = false;
         for (U32 i = 0; i < present_mode_count; ++i) {
@@ -234,7 +245,7 @@ W window_create(Arena *arena) {
         // assert format
         U32 format_count;
         VK_ASSERT(vkGetPhysicalDeviceSurfaceFormatsKHR(phy_device, surface, &format_count, NULL));
-        VkSurfaceFormatKHR *formats = ARENA_ALLOC_ARRAY(arena, sizeof(VkSurfaceFormatKHR), format_count);
+        VkSurfaceFormatKHR *formats = ARENA_ALLOC_ARRAY(arena, VkSurfaceFormatKHR, format_count);
         VK_ASSERT(vkGetPhysicalDeviceSurfaceFormatsKHR(phy_device, surface, &format_count, formats));
         bool format_found = false;
         for (U32 i = 0; i < format_count; ++i) {
@@ -247,74 +258,6 @@ W window_create(Arena *arena) {
         arena_reset(arena, &reset);
     }
 
-    // SWAPCHAIN -----------------------------------------------------------------------------
-    
-    VkSwapchainKHR sc;
-    VkExtent2D sc_extent;
-    VkImage *sc_images;
-    VkImageView *sc_image_views;
-    U32 sc_image_count;
-    {
-        // swapchain size
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-        sc_extent = (VkExtent2D) { (U32)width, (U32)height };
-        U32 image_count = surface_cap.minImageCount + 1;
-        if (surface_cap.maxImageCount != 0)
-            assert(image_count <= surface_cap.maxImageCount);
-
-        // swapchain creation
-        VkSwapchainCreateInfoKHR sc_info = {
-            .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-            .surface = surface,
-            .minImageCount = image_count,
-            .imageFormat = SURFACE_FORMAT,
-            .imageColorSpace = SURFACE_COLOUR_SPACE,
-            .imageExtent = sc_extent,
-            .imageArrayLayers = 1,
-            .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-            .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .preTransform = surface_cap.currentTransform,
-            .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-            .presentMode = SURFACE_PRESENT_MODE,
-            .clipped = VK_TRUE,
-            .oldSwapchain = VK_NULL_HANDLE,
-        };
-
-        VK_ASSERT(vkCreateSwapchainKHR(device, &sc_info, NULL, &sc));
-
-        // swapchain images
-        VK_ASSERT(vkGetSwapchainImagesKHR(device, sc, &sc_image_count, NULL));
-        sc_images = ARENA_ALLOC_ARRAY(arena, sizeof(VkImage), sc_image_count);
-        sc_image_views = ARENA_ALLOC_ARRAY(arena, sizeof(VkImageView), sc_image_count);
-        VK_ASSERT(vkGetSwapchainImagesKHR(device, sc, &sc_image_count, sc_images));
-
-        // swapchain image views
-        VkImageViewCreateInfo view_info = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = SURFACE_FORMAT,
-            .components = {
-                .r = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .a = VK_COMPONENT_SWIZZLE_IDENTITY,
-            },
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-        };
-
-        for (U32 i = 0; i < sc_image_count; ++i) {
-            view_info.image = sc_images[i];
-            VK_ASSERT(vkCreateImageView(device, &view_info, NULL, &sc_image_views[i]));
-        }
-    }
-
     // DESCRIPTOR SET POOL ---------------------------------------------------------------
 
     VkDescriptorPool descriptor_pool;
@@ -322,6 +265,7 @@ W window_create(Arena *arena) {
         VkDescriptorPoolSize pools[] = {
             { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16 },
             { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16 },
         };
 
         VkDescriptorPoolCreateInfo info = {
@@ -342,7 +286,7 @@ W window_create(Arena *arena) {
         static const VkDescriptorSetLayoutBinding bindings[] = {
             // atlas
             {
-                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
                 .binding = 0,
                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                 .descriptorCount = 1,
@@ -350,7 +294,7 @@ W window_create(Arena *arena) {
 
             // glyph lookup table
             {
-                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
                 .binding = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 .descriptorCount = 1,
@@ -358,9 +302,17 @@ W window_create(Arena *arena) {
 
             // glyphs to draw
             {
-                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
                 .binding = 2,
                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+            },
+
+            // static data uniform
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+                .binding = 3,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 .descriptorCount = 1,
             }
         };
@@ -373,6 +325,20 @@ W window_create(Arena *arena) {
         };
 
         VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, NULL, &descriptor_set_layout_glyphs));
+    }
+
+    // UNIFORMS ------------------------------------------------------------------------------
+
+    StaticDataUniform static_data_uniform = {0}; // diffed then filled each frame
+    VkBuffer static_data_uniform_buffer;
+    VkDeviceMemory static_data_uniform_buffer_memory = {0}; // allocated later
+    {
+        VkBufferCreateInfo info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = sizeof(StaticDataUniform),
+            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        };
+        VK_ASSERT(vkCreateBuffer(device, &info, NULL, &static_data_uniform_buffer));
     }
 
     // COMMAND POOL ----------------------------------------------------------------------
@@ -509,6 +475,12 @@ W window_create(Arena *arena) {
 
         VK_ASSERT(vkCreateRenderPass(device, &pass_info, NULL, &pass));
     }
+    // SWAPCHAIN -----------------------------------------------------------------------------
+
+    Arena sc_arena = arena_create_sized(8ul*KB);
+    Swapchain *sc = swapchain_create(device, phy_device, surface, pass, &sc_arena);
+    U32 width_i = sc->width;
+    U32 height_i = sc->height;
 
     // PIPELINE -----------------------------------------------------------------
 
@@ -553,28 +525,6 @@ W window_create(Arena *arena) {
             .primitiveRestartEnable = VK_FALSE,
         };
 
-        VkViewport viewport = {
-            .x = 0.0f,
-            .y = 0.0f,
-            .width = (F32) sc_extent.width,
-            .height = (F32) sc_extent.height,
-            .minDepth = 0.0f,
-            .maxDepth = 1.0f,
-        };
-
-        VkRect2D scissor = {
-            .offset = {0, 0},
-            .extent = sc_extent,
-        };
-
-        VkPipelineViewportStateCreateInfo viewport_state_info = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-            .viewportCount = 1,
-            .pViewports = &viewport,
-            .scissorCount = 1,
-            .pScissors = &scissor
-        };
-
         VkPipelineRasterizationStateCreateInfo rasterizer = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .depthClampEnable = VK_FALSE,
@@ -612,6 +562,33 @@ W window_create(Arena *arena) {
         };
 
         const VkPipelineShaderStageCreateInfo stages[] = {vert_info, frag_info};
+
+        VkDynamicState dyn_state[] = {
+            VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR
+        };
+        VkPipelineDynamicStateCreateInfo dyn_info = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+            .dynamicStateCount = countof(dyn_state),
+            .pDynamicStates = dyn_state,
+        };
+
+        VkPipelineViewportStateCreateInfo viewport_info = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+            .viewportCount = 1,
+            .pViewports = &(VkViewport){
+                .x = 0.f,
+                .y = 0.f,
+                .width = (F32)width_i,
+                .height = (F32)height_i,
+                .minDepth = 0.f,
+                .maxDepth = 1.f,
+            },
+            .scissorCount = 1,
+            .pScissors = &(VkRect2D){
+                { 0, 0 },
+                { (U32)width_i, (U32)height_i },
+            },
+        };
         
         VkGraphicsPipelineCreateInfo pl_info = {
             .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -619,12 +596,12 @@ W window_create(Arena *arena) {
             .pStages = stages,
             .pVertexInputState = &vert_input_info,
             .pInputAssemblyState = &primitive_info,
-            .pViewportState = &viewport_state_info,
             .pRasterizationState = &rasterizer,
             .pMultisampleState = &ms,
             .pDepthStencilState = NULL,
             .pColorBlendState = &colour_blend_state,
-            .pDynamicState = NULL,
+            .pDynamicState = &dyn_info,
+            .pViewportState = &viewport_info,
             .layout = pl_layout,
             .renderPass = pass,
             .subpass = 0,
@@ -636,26 +613,6 @@ W window_create(Arena *arena) {
     vkDestroyShaderModule(device, vert_module, NULL);
     vkDestroyShaderModule(device, frag_module, NULL);
 
-    // FRAMEBUFFERS ---------------------------------------------------------------
-
-    VkFramebuffer *sc_framebuffers = ARENA_ALLOC_ARRAY(arena, sizeof(VkFramebuffer), sc_image_count);
-    {
-        VkFramebufferCreateInfo fb_info = {
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .renderPass = pass,
-            .attachmentCount = 1,
-            .width = sc_extent.width,
-            .height = sc_extent.height,
-            .layers = 1,
-        };
-
-        for (U32 i = 0; i < sc_image_count; ++i) {
-            VkImageView attachments[] = { sc_image_views[i] };
-            fb_info.pAttachments = attachments;
-            VK_ASSERT(vkCreateFramebuffer(device, &fb_info, NULL, &sc_framebuffers[i]));
-        }
-    }
-
     Inputs inputs = {
         .char_events = ARENA_ALLOC_ARRAY(arena, CharEvent, MAX_EVENTS),
         .key_events = ARENA_ALLOC_ARRAY(arena, KeyEvent, MAX_EVENTS),
@@ -664,17 +621,21 @@ W window_create(Arena *arena) {
     // CREATE W -------------------------------------------------------------------------------
 
     W w = { 
-        window, instance, phy_device, phy_mem_props, device, queue, cmd_pool, cmd_buffer,
-        surface, sc, sc_extent, sc_images, sc_image_views, sc_image_count,
+        window, instance, phy_device, phy_mem_props,
+        device, queue,
+        cmd_pool, cmd_buffer,
+        surface, sc_arena, sc,
         image_available, render_finished, in_flight,
-        pass, sc_framebuffers, pl_layout, pl,
+        pass, pl_layout, pl,
         descriptor_pool, descriptor_set_layout_glyphs,
+        static_data_uniform, static_data_uniform_buffer, static_data_uniform_buffer_memory,
 
         inputs, frame_arena, staging, false,
     };
 
     // ALLOC GPU BUFFERS ---------------------------------------------------------------------
 
+    // staging buffer
     {
         VK_ASSERT(gpu_alloc_buffer(
             &w, 
@@ -685,6 +646,14 @@ W window_create(Arena *arena) {
         VK_ASSERT(vkMapMemory(w.device, w.staging_buffer.buffer_memory, 0, STAGING_BUFFER_SIZE, 0, (void**) &w.staging_buffer.mapped_ptr));
         staging_buffer_reset(&w.staging_buffer);
     }
+
+    // static uniform buffer
+    VK_ASSERT(gpu_alloc_buffer(
+        &w, 
+        w.static_data_uniform_buffer,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        &w.static_data_uniform_buffer_memory
+    ));
 
     // END -----------------------------------------------------------------------------------
 
@@ -697,11 +666,10 @@ void window_destroy(W *w) {
     VkDevice device = w->device;
     VkInstance instance = w->instance;
 
+    swapchain_destroy(device, w->sc);
+    arena_destroy(&w->sc_arena);
+
     vkDestroyDescriptorSetLayout(device, w->descriptor_set_layout_glyphs, NULL);
-
-    for (U32 i = 0; i < w->sc_image_count; ++i)
-        vkDestroyFramebuffer(device, w->sc_framebuffers[i], NULL);
-
     vkDestroyRenderPass(device, w->pass, NULL);
     vkDestroyPipelineLayout(device, w->pl_layout, NULL);
     vkDestroyPipeline(device, w->pl, NULL);
@@ -715,10 +683,6 @@ void window_destroy(W *w) {
     vkDestroySemaphore(device, w->render_finished, NULL);
     vkDestroyFence(device, w->in_flight, NULL);
 
-    for (U32 i = 0; i < w->sc_image_count; ++i)
-        vkDestroyImageView(device, w->sc_image_views[i], NULL);
-
-    vkDestroySwapchainKHR(device, w->sc, NULL);
     vkDestroySurfaceKHR(instance, w->surface, NULL);
     vkDestroyCommandPool(device, w->cmd_pool, NULL);
     vkDestroyDevice(device, NULL);
@@ -903,6 +867,21 @@ VkDescriptorSet descriptor_set_glyphs_create(
                     .range = MAX_GLYPHS_SIZE,
                 }
             },
+
+            // static data
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = descriptor_set,
+                .dstBinding = 3,
+                .dstArrayElement = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .pBufferInfo = &(VkDescriptorBufferInfo) {
+                    .buffer = w->static_data_uniform_buffer,
+                    .offset = 0,
+                    .range = sizeof(StaticDataUniform),
+                }
+            },
         };
 
         U32 write_count = countof(descriptor_writes);
@@ -931,7 +910,8 @@ int main(int argc, char *argv[]) {
 
     // font atlas -------------------------------------------------------
 
-    const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Medium.ttf";
+    //const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Medium.ttf";
+    const char *ttf_path = "/usr/share/fonts/TTF/IosevkaFixed-Regular.ttf";
     FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
 
     // Editor -----------------------------------------------------------
@@ -970,8 +950,10 @@ int main(int argc, char *argv[]) {
 
     VkDescriptorSet descriptor_set_glyphs = descriptor_set_glyphs_create(&w, font_atlas, glyph_draw_buffer);
 
-    F32 frame = 0.0;
+    F32 frame = 10.0;
     while (!glfwWindowShouldClose(w.window)) {
+        // INPUTS -------------------------------------------------------------
+
         w.inputs.char_event_count = 0;
         w.inputs.key_event_count = 0;
         w.inputs.mouse_held_prev = w.inputs.mouse_held;
@@ -986,9 +968,43 @@ int main(int argc, char *argv[]) {
         w.inputs.key_pressed = w.inputs.key_held & ~w.inputs.key_held_prev;
         w.inputs.key_released = w.inputs.key_held_prev & ~w.inputs.key_held;
 
+        // STATIC DATA --------------------------------------------------------
+
+        F32 width, height;
+        U32 width_i, height_i;
+        {
+            width_i = w.sc->width;
+            height_i = w.sc->height;
+            width = (F32)width_i;
+            height = (F32)height_i;
+        }
+
+        bool x_match = w.static_data_uniform.viewport_size[0] == width;
+        bool y_match = w.static_data_uniform.viewport_size[1] == height;
+        if (!x_match || !y_match) {
+            w.static_data_uniform.viewport_size[0] = width;
+            w.static_data_uniform.viewport_size[1] = height;
+            StaticDataUniform *uniform = (StaticDataUniform *)staging_buffer_alloc(&w.staging_buffer, sizeof(StaticDataUniform), 16);
+            *uniform = w.static_data_uniform;
+
+            VkBufferCopy *copy = ARENA_ALLOC(&w.frame_arena, *copy);
+            *copy = (VkBufferCopy) {
+                .srcOffset = (U64)((U8*)uniform - w.staging_buffer.mapped_ptr),
+                .dstOffset = 0,
+                .size = sizeof(StaticDataUniform),
+            };
+            staging_buffer_cmd_copy_to_buffer(
+                &w.staging_buffer,
+                &w.frame_arena,
+                w.static_data_uniform_buffer,
+                1,
+                copy
+            );
+        }
+
         // UPDATE ----------------------------------------------------------------
 
-        Rect viewport = { 0.f, 0.f, 800.f, 800.f };
+        Rect viewport = { 0.f, 0.f, width, height };
         GlyphSlice glyphs = editor_update(&w, &editor, font_atlas, viewport);
         U64 glyphs_size = glyphs.count * sizeof(Glyph);
 
@@ -1021,8 +1037,32 @@ int main(int argc, char *argv[]) {
         U32 sc_image_idx;
         {
             VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
+            VkResult res = vkAcquireNextImageKHR(w.device, w.sc->sc, UINT64_MAX, w.image_available, VK_NULL_HANDLE, &sc_image_idx);
+
+            if (res != VK_SUCCESS) {
+                if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+                    while (width_i == 0 || height_i == 0) {
+                        glfwWaitEvents();
+                        glfwGetFramebufferSize(w.window, (int*)&width_i, (int*)&height_i);
+                    }
+
+                    vkDeviceWaitIdle(w.device);
+
+                    swapchain_destroy(w.device, w.sc);
+                    arena_clear(&w.sc_arena);
+                    w.sc = swapchain_create(w.device, w.phy_device, w.surface, w.pass, &w.sc_arena);
+
+                    vkDestroySemaphore(w.device, w.image_available, NULL);
+                    VkSemaphoreCreateInfo sem_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+                    VK_ASSERT(vkCreateSemaphore(w.device, &sem_info, NULL, &w.image_available));
+
+                    continue;
+                } else {
+                    assert(false);
+                }
+            }
+
             VK_ASSERT(vkResetFences(w.device, 1, &w.in_flight));
-            VK_ASSERT(vkAcquireNextImageKHR(w.device, w.sc, UINT64_MAX, w.image_available, VK_NULL_HANDLE, &sc_image_idx));
         }
 
         // START RECORDING -------------------------------------------------------
@@ -1166,10 +1206,10 @@ int main(int argc, char *argv[]) {
             VkRenderPassBeginInfo pass_info = {
                 .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
                 .renderPass = w.pass,
-                .framebuffer = w.sc_framebuffers[sc_image_idx],
+                .framebuffer = w.sc->framebuffers[sc_image_idx],
                 .renderArea = {
                     .offset = {0, 0},
-                    .extent = w.sc_extent,
+                    .extent = { width_i, height_i },
                 },
                 .clearValueCount = 1,
                 .pClearValues = &clear_colour,
@@ -1178,7 +1218,18 @@ int main(int argc, char *argv[]) {
         }
 
         {
+            VkViewport v = {
+                .x = 0.f,
+                .y = 0.f,
+                .width = width,
+                .height = height,
+                .minDepth = 0.f,
+                .maxDepth = 1.f,
+            };
+            VkRect2D s = { { 0, 0 }, { width_i, height_i } };
             vkCmdBindPipeline(w.cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, w.pl);
+            vkCmdSetViewport(w.cmd_buffer, 0, 1, &v);
+            vkCmdSetScissor(w.cmd_buffer, 0, 1, &s);
 
             vkCmdBindDescriptorSets(
                 w.cmd_buffer,
@@ -1220,13 +1271,18 @@ int main(int argc, char *argv[]) {
         {
             VkPresentInfoKHR present_info = {
                 .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+                //.pNext = &(VkSwapchainPresentScalingCreateInfoEXT) {
+                //    .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_SCALING_CREATE_INFO_EXT,
+                //    .scalingBehavior = VK_PRESENT_SCALING_STRETCH_BIT_EXT,
+                //},
                 .waitSemaphoreCount = 1,
                 .pWaitSemaphores = &w.render_finished,
                 .swapchainCount = 1,
-                .pSwapchains = &w.sc,
+                .pSwapchains = &w.sc->sc,
                 .pImageIndices = &sc_image_idx,
             };
-            VK_ASSERT(vkQueuePresentKHR(w.queue, &present_info));
+            VkResult res = vkQueuePresentKHR(w.queue, &present_info);
+            assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
         }
 
         // RESET STATE -----------------------------------------------------------
@@ -1240,6 +1296,8 @@ int main(int argc, char *argv[]) {
 
     editor_destroy(&editor);
 
+    gpu_free(&w, w.static_data_uniform_buffer_memory);
+    vkDestroyBuffer(w.device, w.static_data_uniform_buffer, NULL);
     gpu_free(&w, glyph_draw_buffer_memory);
     vkDestroyBuffer(w.device, glyph_draw_buffer, NULL);
 
@@ -1298,4 +1356,110 @@ void glfw_callback_scroll(GLFWwindow *window, double x, double y) {
     (void)x;
     W *w = glfwGetWindowUserPointer(window);
     w->inputs.scroll = (F32)y;
+}
+
+Swapchain *swapchain_create(
+    VkDevice device,
+    VkPhysicalDevice phy_device,
+    VkSurfaceKHR surface,
+    VkRenderPass pass,
+    Arena *arena
+) {
+    Swapchain *sc = ARENA_ALLOC(arena, *sc);
+
+    VkSurfaceCapabilitiesKHR surface_cap;
+    VK_ASSERT(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phy_device, surface, &surface_cap));
+
+    // SWAPCHAIN ----------------------------------------------------------
+
+    VkExtent2D sc_extent = surface_cap.currentExtent;
+    U32 width = sc_extent.width;
+    U32 height = sc_extent.height;
+    sc->width = width;
+    sc->height = height;
+
+    U32 image_count = surface_cap.minImageCount + 1;
+    if (surface_cap.maxImageCount != 0)
+        assert(image_count <= surface_cap.maxImageCount);
+
+    // swapchain creation
+    VkSwapchainCreateInfoKHR sc_info = {
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = surface,
+        .minImageCount = image_count,
+        .imageFormat = SURFACE_FORMAT,
+        .imageColorSpace = SURFACE_COLOUR_SPACE,
+        .imageExtent = sc_extent,
+        .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .preTransform = surface_cap.currentTransform,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = SURFACE_PRESENT_MODE,
+        .clipped = VK_TRUE,
+        .oldSwapchain = VK_NULL_HANDLE,
+    };
+
+    VK_ASSERT(vkCreateSwapchainKHR(device, &sc_info, NULL, &sc->sc));
+
+    // swapchain images
+    VK_ASSERT(vkGetSwapchainImagesKHR(device, sc->sc, &sc->image_count, NULL));
+    sc->images = ARENA_ALLOC_ARRAY(arena, VkImage, sc->image_count);
+    sc->image_views = ARENA_ALLOC_ARRAY(arena, VkImageView, sc->image_count);
+    VK_ASSERT(vkGetSwapchainImagesKHR(device, sc->sc, &sc->image_count, sc->images));
+
+    // swapchain image views
+    VkImageViewCreateInfo view_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = SURFACE_FORMAT,
+        .components = {
+            .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .a = VK_COMPONENT_SWIZZLE_IDENTITY,
+        },
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+
+    for (U32 i = 0; i < sc->image_count; ++i) {
+        view_info.image = sc->images[i];
+        VK_ASSERT(vkCreateImageView(device, &view_info, NULL, &sc->image_views[i]));
+    }
+
+    // FRAMEBUFFERS ---------------------------------------------------------------
+
+    sc->framebuffers = ARENA_ALLOC_ARRAY(arena, VkFramebuffer, sc->image_count);
+    {
+        VkFramebufferCreateInfo fb_info = {
+            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = pass,
+            .attachmentCount = 1,
+            .width = width,
+            .height = height,
+            .layers = 1,
+        };
+
+        for (U32 i = 0; i < sc->image_count; ++i) {
+            VkImageView attachments[] = { sc->image_views[i] };
+            fb_info.pAttachments = attachments;
+            VK_ASSERT(vkCreateFramebuffer(device, &fb_info, NULL, &sc->framebuffers[i]));
+        }
+    }
+
+    return sc;
+}
+
+void swapchain_destroy(VkDevice device, Swapchain *sc) {
+    for (U32 i = 0; i < sc->image_count; ++i) {
+        vkDestroyFramebuffer(device, sc->framebuffers[i], NULL);
+        vkDestroyImageView(device, sc->image_views[i], NULL);
+    }
+    vkDestroySwapchainKHR(device, sc->sc, NULL);
 }
