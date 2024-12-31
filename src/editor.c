@@ -8,6 +8,20 @@
 // k - select previous group
 // J - expand selection to next group
 // K - expand selection to previous group
+// C-J - contract selection to previous group (buggy)
+// C-K - contract selection to next group (buggy)
+// C-s - save
+// d - delete selection and select next group
+// c - delete selection and enter edit mode
+// i - enter insert mode at start of selection
+// I - enter insert mode at first non-whitespace character of selection
+// a - enter insert mode at end of selection
+// A - enter insert mode at last non-whitespace character of selection
+// m - trim whitespace from ends of selection
+// w - contract selection group and select first new group
+// W - expand selection group and select first new group
+// e - contract selection group and select last new group
+// E - expand selection group and select last new group
 
 typedef struct Range {
     I64 start;
