@@ -1,29 +1,41 @@
 #include "editor.h"
 
-//   h - expand selection group
-//   H - expand to largest group
-//   l - contract selection group
-//   L - expand to smallest group
+// MOVEMENT AND SELECTION  ---------------------------------------------
 //   j - select next group
 //   k - select previous group
+//
+//   h - expand selection group
+//   l - contract selection group
+//
 //   J - expand selection downwards
 //   K - contract selection upwards (buggy)
 // C-J - contract selection downwards (buggy)
 // C-K - expand selection upwards
-// C-s - save
-//   d - delete selection and select next group
+//
+// EDIT MODE -----------------------------------------------------------
 //   c - delete selection and enter edit mode
-//   i - enter insert mode at start of selection
-//   I - enter insert mode at first non-whitespace character of selection
-//   a - enter insert mode at end of selection
-//   A - enter insert mode at last non-whitespace character of selection
+//
+//   i - enter edit mode at start of selection
+//   a - enter edit mode at end of selection
+//
+//   I - enter edit mode at first non-whitespace character of selection
+//   A - enter edit mode at last non-whitespace character of selection
+//
+// COPY PASTE ----------------------------------------------------------
+//   d - cut selection and select next group
+//   y (todo) - copy selection
+//   p (todo) - paste
+//
+// MISC ----------------------------------------------------------------
+// C-s - save
 //   m - trim whitespace from ends of selection
+//   u - undo
+// C-r - redo
+//
 //   w - contract selection group and select first new group
 //   W - expand selection group and select first new group
 //   e - contract selection group and select last new group
 //   E - expand selection group and select last new group
-//   u - undo
-// C-r - redo
 
 UndoStack   undo_create(void);
 void        undo_destroy(UndoStack *st);
@@ -56,7 +68,8 @@ Editor editor_create(Arena *arena, const char *filepath) {
         .undo_stack = undo_create(),
         .glyphs = glyphs,
         .selection_group = Group_Paragraph,
-        .mode_input_text = ARENA_ALLOC_ARRAY(arena, U8, MODE_INPUT_TEXT_MAX),
+        // align to 16 cuz we will be copying to and from this a lot
+        .copied_text = arena_alloc(arena, COPY_MAX_LENGTH, 16),
     };
 
     assert(editor_load_filepath(&ed, filepath) == 0);
@@ -222,6 +235,28 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 Range range = editor_group(ed, ed->selection_group, ed->selection_a);
                 ed->selection_a = range.start;
                 ed->selection_b = range.end;
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_Y))) {
+                I64 copy_start = clamp(ed->selection_a, 0, ed->text_length);
+                I64 copy_end = clamp(ed->selection_b, 0, ed->text_length);
+                U32 copy_length = (U32)clamp(copy_end - copy_start, 0, COPY_MAX_LENGTH);
+
+                ed->copied_text_length = copy_length;
+                memcpy(ed->copied_text, &ed->text[copy_start], copy_length);
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_P))) {
+                I64 paste_idx;
+                if (shift) {
+                    paste_idx = ed->selection_a;
+                } else {
+                    paste_idx = ed->selection_b;
+                }
+
+                editor_text_insert(ed, paste_idx, ed->copied_text, ed->copied_text_length);
+                ed->selection_a = paste_idx;
+                ed->selection_b = paste_idx + ed->copied_text_length;
             }
 
             //if (is(pressed, key_mask(GLFW_KEY_K))) ed->scroll_y -= 1.f;
@@ -400,6 +435,10 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             continue;
         }
 
+        if (state == State_String_End) {
+            state = State_Normal;
+        }
+
         if (state == State_Normal) {
             if (ch == '/' && ch_next == '/') {
                 state = State_LineComment;
@@ -415,15 +454,15 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 state = State_Normal;
             }
         } else if (state == State_String_DoubleQ) {
-            if (ch_prev != '\\' && ch == '\"') {
+            U8 ch_prev2 = editor_text(ed, i-2);
+            if (ch == '\"' && (ch_prev != '\\' || ch_prev2 == '\\')) {
                 state = State_String_End;
             }
         } else if (state == State_String_SingleQ) {
-            if (ch_prev != '\\' && ch == '\'') {
+            U8 ch_prev2 = editor_text(ed, i-2);
+            if (ch == '\'' && (ch_prev != '\\' || ch_prev2 == '\\')) {
                 state = State_String_End;
             }
-        } else if (state == State_String_End) {
-            state = State_Normal;
         }
 
         // bounds checking -----
@@ -798,7 +837,8 @@ void editor_redo(Editor *ed) {
 }
 
 UndoElem *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op) {
-    assert(text_length > 0);
+    if (text_length == 0) return NULL;
+
     assert(text_length <= UINT32_MAX);
     assert(st->undo_stack_head < UNDO_MAX && st->text_stack_head + text_length < (I64)UNDO_TEXT_SIZE);
 

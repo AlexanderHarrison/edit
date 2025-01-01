@@ -5,11 +5,18 @@
 #include "font.h"
 
 #define MODE_INPUT_TEXT_MAX 512
+#define COPY_MAX_LENGTH 8096
 #define TEXT_MAX_LENGTH (1ull << 30)
 
 #define UNDO_STACK_SIZE (1ul*GB)
 #define UNDO_TEXT_SIZE (1ul*GB)
 #define UNDO_MAX (UNDO_STACK_SIZE / sizeof(UndoElem))
+
+static inline I64 clamp(I64 n, I64 low, I64 high) {
+    if (n < low) return low;
+    if (n > high) return high;
+    return n;
+}
 
 typedef struct Range {
     I64 start;
@@ -60,7 +67,9 @@ typedef struct UndoStack {
 typedef struct Editor {
     Arena *arena;
     UndoStack undo_stack;
+    U8 *copied_text;
     U8 *filepath;
+    U32 copied_text_length;
     U32 filepath_length;
 
     Glyph *glyphs; // cache to avoid reallocations
@@ -73,8 +82,6 @@ typedef struct Editor {
     Group selection_group;
 
     Mode mode;
-    U8 *mode_input_text;
-    U32 mode_input_text_length;
     union {
         I64 insert_cursor;
     } mode_data;
