@@ -46,6 +46,9 @@ void glfw_callback_mouse_pos    (GLFWwindow *window, double x, double y);
 void glfw_callback_mouse_button (GLFWwindow *window, int button, int action, int mods);
 void glfw_callback_scroll       (GLFWwindow *window, double x, double y);
 
+GLFWmonitor*
+glfw_get_current_monitor(GLFWwindow *window);
+
 // WINDOWING FUNCTION #####################################################
 
 W window_create(Arena *arena) {
@@ -54,6 +57,7 @@ W window_create(Arena *arena) {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
     GLFWwindow *window = glfwCreateWindow(INITIAL_WIDTH, INITIAL_HEIGHT, PROJECT_NAME, NULL, NULL);
 
     U32 glfw_ext_count;
@@ -621,7 +625,8 @@ W window_create(Arena *arena) {
     // CREATE W -------------------------------------------------------------------------------
 
     W w = { 
-        window, instance, phy_device, phy_mem_props,
+        window, NULL,
+        instance, phy_device, phy_mem_props,
         device, queue,
         cmd_pool, cmd_buffer,
         surface, sc_arena, sc,
@@ -967,6 +972,25 @@ int main(int argc, char *argv[]) {
         w.inputs.mouse_released = w.inputs.mouse_held_prev & ~w.inputs.mouse_held;
         w.inputs.key_pressed = w.inputs.key_held & ~w.inputs.key_held_prev;
         w.inputs.key_released = w.inputs.key_held_prev & ~w.inputs.key_held;
+
+        if (w.inputs.key_special_pressed & special_mask(GLFW_KEY_F11)) {
+            if (w.monitor == NULL) {
+                w.monitor = glfw_get_current_monitor(w.window);
+                const GLFWvidmode *mode = glfwGetVideoMode(w.monitor);
+                glfwSetWindowMonitor(
+                    w.window, w.monitor,
+                    0, 0, mode->width, mode->height,
+                    mode->refreshRate
+                );
+            } else {
+                w.monitor = NULL;
+                glfwSetWindowMonitor(
+                    w.window, NULL,
+                    0, 0, INITIAL_WIDTH, INITIAL_HEIGHT,
+                    GLFW_DONT_CARE
+                );
+            }
+        }
 
         // STATIC DATA --------------------------------------------------------
 
@@ -1462,4 +1486,44 @@ void swapchain_destroy(VkDevice device, Swapchain *sc) {
         vkDestroyImageView(device, sc->image_views[i], NULL);
     }
     vkDestroySwapchainKHR(device, sc->sc, NULL);
+}
+
+static int min_i(int a, int b) {
+    return a < b ? a : b;
+}
+
+static int max_i(int a, int b) {
+    return a > b ? a : b;
+}
+
+GLFWmonitor* glfw_get_current_monitor(GLFWwindow *window) {
+    // adapted from https://stackoverflow.com/a/31526753
+    int wx, wy, ww, wh;
+    glfwGetWindowPos(window, &wx, &wy);
+    glfwGetWindowSize(window, &ww, &wh);
+
+    int monitor_count;
+    GLFWmonitor **monitors = glfwGetMonitors(&monitor_count);
+
+    int best_overlap = 0;
+    GLFWmonitor *best_monitor = NULL;
+    for (int i = 0; i < monitor_count; i++) {
+        const GLFWvidmode *mode = glfwGetVideoMode(monitors[i]);
+
+        int mx, my;
+        glfwGetMonitorPos(monitors[i], &mx, &my);
+        int mw = mode->width;
+        int mh = mode->height;
+
+        int overlap =
+            max_i(0, min_i(wx + ww, mx + mw) - max_i(wx, mx)) *
+            max_i(0, min_i(wy + wh, my + mh) - max_i(wy, my));
+
+        if (best_overlap < overlap) {
+            best_overlap = overlap;
+            best_monitor = monitors[i];
+        }
+    }
+
+    return best_monitor;
 }

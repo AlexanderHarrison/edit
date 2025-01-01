@@ -160,6 +160,7 @@ typedef struct {
     // STATIC DATA -------------------------------
 
     GLFWwindow *window;
+    GLFWmonitor *monitor;
     VkInstance instance;
     VkPhysicalDevice phy_device;
     VkPhysicalDeviceMemoryProperties phy_mem_props;
