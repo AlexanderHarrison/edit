@@ -7,6 +7,15 @@
 #define MODE_INPUT_TEXT_MAX 512
 #define TEXT_MAX_LENGTH (1ull << 30)
 
+#define UNDO_STACK_SIZE (1ul*GB)
+#define UNDO_TEXT_SIZE (1ul*GB)
+#define UNDO_MAX (UNDO_STACK_SIZE / sizeof(UndoElem))
+
+typedef struct Range {
+    I64 start;
+    I64 end;
+} Range;
+
 typedef enum Group {
     // separated by empty lines
     Group_Paragraph,
@@ -14,11 +23,8 @@ typedef enum Group {
     // separated by lines
     Group_Line,
 
-    // separated by any whitespace
-    Group_Word,
-
     // separated by differing character types (symbol, alphanumeric, etc.)
-    Group_Type,
+    Group_Word,
 
     // separated by character
     Group_Character,
@@ -31,8 +37,29 @@ typedef enum Mode {
     Mode_Insert,
 } Mode;
 
+typedef enum UndoOp {
+    UndoOp_Insert = 0,
+    UndoOp_Remove = 1,
+} UndoOp;
+
+typedef struct UndoElem {
+    I64 at;
+    U32 text_length;
+    U8 op;
+} UndoElem;
+
+typedef struct UndoStack {
+    U8 *text_stack;
+    UndoElem *undo_stack;
+    U32 text_stack_head;
+    U32 undo_stack_head;
+    U32 undo_count;
+} UndoStack;
+
+
 typedef struct Editor {
     Arena *arena;
+    UndoStack undo_stack;
     U8 *filepath;
     U32 filepath_length;
 

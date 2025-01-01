@@ -1,53 +1,61 @@
 #include "editor.h"
 
-// h - expand selection group
-// H - expand to largest group
-// l - contract selection group
-// L - expand to smallest group
-// j - select next group
-// k - select previous group
-// J - expand selection to next group
-// K - expand selection to previous group
-// C-J - contract selection to previous group (buggy)
-// C-K - contract selection to next group (buggy)
+//   h - expand selection group
+//   H - expand to largest group
+//   l - contract selection group
+//   L - expand to smallest group
+//   j - select next group
+//   k - select previous group
+//   J - expand selection downwards
+//   K - contract selection upwards (buggy)
+// C-J - contract selection downwards (buggy)
+// C-K - expand selection upwards
 // C-s - save
-// d - delete selection and select next group
-// c - delete selection and enter edit mode
-// i - enter insert mode at start of selection
-// I - enter insert mode at first non-whitespace character of selection
-// a - enter insert mode at end of selection
-// A - enter insert mode at last non-whitespace character of selection
-// m - trim whitespace from ends of selection
-// w - contract selection group and select first new group
-// W - expand selection group and select first new group
-// e - contract selection group and select last new group
-// E - expand selection group and select last new group
+//   d - delete selection and select next group
+//   c - delete selection and enter edit mode
+//   i - enter insert mode at start of selection
+//   I - enter insert mode at first non-whitespace character of selection
+//   a - enter insert mode at end of selection
+//   A - enter insert mode at last non-whitespace character of selection
+//   m - trim whitespace from ends of selection
+//   w - contract selection group and select first new group
+//   W - expand selection group and select first new group
+//   e - contract selection group and select last new group
+//   E - expand selection group and select last new group
+//   u - undo
+// C-r - redo
 
-typedef struct Range {
-    I64 start;
-    I64 end;
-} Range;
+UndoStack   undo_create(void);
+void        undo_destroy(UndoStack *st);
+void        undo_clear(UndoStack *st);
+UndoElem   *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op);
 
-int editor_load_filepath(Editor *ed, const char *filepath);
-void editor_dealloc_file(Editor *ed);
-Range editor_group(Editor *ed, Group group, I64 byte);
-Range editor_group_next(Editor *ed, Group group, I64 current_group_end);
-Range editor_group_prev(Editor *ed, Group group, I64 current_group_start);
-I64 editor_line_index(Editor *ed, I64 byte);
-Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v);
-void editor_selection_trim(Editor *ed);
+int         editor_load_filepath(Editor *ed, const char *filepath);
+void        editor_dealloc_file(Editor *ed);
+Range       editor_group(Editor *ed, Group group, I64 byte);
+Range       editor_group_next(Editor *ed, Group group, I64 current_group_end);
+Range       editor_group_prev(Editor *ed, Group group, I64 current_group_start);
+I64         editor_line_index(Editor *ed, I64 byte);
+Rect        editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v);
+void        editor_selection_trim(Editor *ed);
 
-U8 editor_text(Editor *ed, I64 byte);
-void editor_text_remove(Editor *ed, I64 start, I64 end);
-void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
+void        editor_undo(Editor *ed);
+void        editor_redo(Editor *ed);
+U8          editor_text(Editor *ed, I64 byte);
+void        editor_text_remove(Editor *ed, I64 start, I64 end);
+void        editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
+// same as above, but does not add to the undo stack
+void        editor_text_remove_raw(Editor *ed, I64 start, I64 end);
+void        editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length);
 
 Editor editor_create(Arena *arena, const char *filepath) {
     Glyph *glyphs = ARENA_ALLOC_ARRAY(arena, *glyphs, MAX_GLYPHS);
 
     Editor ed = {
         .arena = arena,
+        .undo_stack = undo_create(),
         .glyphs = glyphs,
-        .selection_group = Group_Line,
+        .selection_group = Group_Paragraph,
         .mode_input_text = ARENA_ALLOC_ARRAY(arena, U8, MODE_INPUT_TEXT_MAX),
     };
 
@@ -59,6 +67,7 @@ Editor editor_create(Arena *arena, const char *filepath) {
 }
 
 void editor_destroy(Editor *ed) {
+    undo_destroy(&ed->undo_stack);
     editor_dealloc_file(ed);
 }
 
@@ -103,6 +112,12 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             bool shift = is(modifiers, GLFW_MOD_SHIFT);
             (void)shift;
 
+            if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_U)))
+                editor_undo(ed);
+
+            if (ctrl && !shift && is(pressed, key_mask(GLFW_KEY_R)))
+                editor_redo(ed);
+
             if (is(pressed, key_mask(GLFW_KEY_H))) {
                 if (shift)
                     ed->selection_group = 0;
@@ -133,7 +148,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 } else if (!ctrl && shift) {
                     Range next_group = editor_group_next(ed, ed->selection_group, ed->selection_b);
                     ed->selection_b = next_group.end;
-                } else if (ctrl && !shift) {
+                } else if (ctrl && shift) {
                     Range a_group = editor_group(ed, ed->selection_group, ed->selection_a);
                     Range next_group = editor_group_next(ed, ed->selection_group, a_group.end);
                     ed->selection_a = next_group.start;
@@ -146,11 +161,11 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                     ed->selection_a = prev_group.start;
                     ed->selection_b = prev_group.end;
                 } else if (!ctrl && shift) {
-                    Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_a);
-                    ed->selection_a = prev_group.start;
-                } else if (ctrl && !shift) {
                     Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_b);
                     ed->selection_b = prev_group.start;
+                } else if (ctrl && shift) {
+                    Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_a);
+                    ed->selection_a = prev_group.start;
                 }
             }
 
@@ -292,7 +307,6 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 {255, 130, 0, 255},
                 {255, 255, 0, 255},
                 {0, 255, 0, 255},
-                {0, 255, 165, 255},
             };
 
             selection_bar_colour = selection_colours[ed->selection_group];
@@ -567,27 +581,27 @@ bool char_symbolic(U8 c) {
     return !char_whitespace(c) && !char_word_like(c);
 }
 
+//Range editor_group_range_word(Editor *ed, I64 byte) {
+//    // not much we can do here
+//    if (byte < 0) byte = 0;
+//    if (byte >= ed->text_length) byte = ed->text_length-1;
+//
+//    I64 start = byte;
+//    while (char_whitespace(editor_text(ed, start)))
+//        start--;
+//    while (!char_whitespace(editor_text(ed, start-1)))
+//        start--;
+//
+//    I64 end = byte;
+//    while (!char_whitespace(editor_text(ed, end)))
+//        end++;
+//    while (char_whitespace(editor_text(ed, end)))
+//        end++;
+//
+//    return (Range) { start, end };
+//}
+
 Range editor_group_range_word(Editor *ed, I64 byte) {
-    // not much we can do here
-    if (byte < 0) byte = 0;
-    if (byte >= ed->text_length) byte = ed->text_length-1;
-
-    I64 start = byte;
-    while (char_whitespace(editor_text(ed, start)))
-        start--;
-    while (!char_whitespace(editor_text(ed, start-1)))
-        start--;
-
-    I64 end = byte;
-    while (!char_whitespace(editor_text(ed, end)))
-        end++;
-    while (char_whitespace(editor_text(ed, end)))
-        end++;
-
-    return (Range) { start, end };
-}
-
-Range editor_group_range_type(Editor *ed, I64 byte) {
     // not much we can do here
     if (byte < 0) byte = 0;
     if (byte >= ed->text_length) byte = ed->text_length-1;
@@ -628,8 +642,6 @@ Range editor_group(Editor *ed, Group group, I64 byte) {
             return editor_group_range_line(ed, byte);
         case Group_Word:
             return editor_group_range_word(ed, byte);
-        case Group_Type:
-            return editor_group_range_type(ed, byte);
         case Group_Character:
             return editor_group_range_char(ed, byte);
         default:
@@ -661,8 +673,15 @@ void editor_text_remove(Editor *ed, I64 start, I64 end) {
         end = temp;
     }
     if (start < 0) start = 0;
+    if (end < 0) end = 0;
+    if (start > ed->text_length) start = ed->text_length;
     if (end > ed->text_length) end = ed->text_length;
 
+    undo_record(&ed->undo_stack, start, &ed->text[start], end - start, UndoOp_Remove);
+    editor_text_remove_raw(ed, start, end);
+}
+
+void editor_text_remove_raw(Editor *ed, I64 start, I64 end) {
     if (start <= ed->selection_a && ed->selection_a < end) {
         ed->selection_a = start;
     } else if (end <= ed->selection_a) {
@@ -687,8 +706,14 @@ void editor_text_remove(Editor *ed, I64 start, I64 end) {
 
 void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) {
     assert(length >= 0);
-    if (length == 0) return;
     assert(ed->text_length + length <= (I64)TEXT_MAX_LENGTH);
+
+    undo_record(&ed->undo_stack, at, text, length, UndoOp_Insert);
+    editor_text_insert_raw(ed, at, text, length);
+}
+
+void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) {
+    if (length == 0) return;
 
     if (at <= ed->selection_a)
         ed->selection_a += length;
@@ -730,4 +755,80 @@ void editor_selection_trim(Editor *ed) {
         b--;
     ed->selection_a = a;
     ed->selection_b = b;
+}
+
+void editor_undo(Editor *ed) {
+    UndoStack *st = &ed->undo_stack;
+    if (st->undo_stack_head == 0) return;
+
+    UndoElem elem = st->undo_stack[--st->undo_stack_head];
+    st->text_stack_head -= elem.text_length;
+    U8 *text = st->text_stack + st->text_stack_head;
+
+    switch (elem.op) {
+        case UndoOp_Insert:
+            editor_text_remove_raw(ed, elem.at, elem.at + (I64)elem.text_length);
+            ed->selection_a = elem.at;
+            ed->selection_b = elem.at;
+            break;
+        case UndoOp_Remove:
+            editor_text_insert_raw(ed, elem.at, text, (I64)elem.text_length);
+            ed->selection_a = elem.at;
+            ed->selection_b = elem.at + elem.text_length;
+            break;
+    }
+}
+
+void editor_redo(Editor *ed) {
+    UndoStack *st = &ed->undo_stack;
+    if (st->undo_stack_head == st->undo_count) return;
+
+    UndoElem elem = st->undo_stack[st->undo_stack_head++];
+    U8 *text = st->text_stack + st->text_stack_head;
+    st->text_stack_head += elem.text_length;
+
+    switch (elem.op) {
+        case UndoOp_Insert:
+            editor_text_insert_raw(ed, elem.at, text, (I64)elem.text_length);
+            break;
+        case UndoOp_Remove:
+            editor_text_remove_raw(ed, elem.at, elem.at + (I64)elem.text_length);
+            break;
+    }
+}
+
+UndoElem *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op) {
+    assert(text_length > 0);
+    assert(text_length <= UINT32_MAX);
+    assert(st->undo_stack_head < UNDO_MAX && st->text_stack_head + text_length < (I64)UNDO_TEXT_SIZE);
+
+    UndoElem *new_elem = &st->undo_stack[st->undo_stack_head++];
+    *new_elem = (UndoElem) { at, (U32)text_length, op };
+    memcpy(st->text_stack + st->text_stack_head, text, (U32)text_length);
+    st->text_stack_head += (U32)text_length;
+    st->undo_count = st->undo_stack_head;
+    return new_elem;
+}
+
+UndoStack undo_create(void) {
+    U8 *bytes = vm_alloc(UNDO_STACK_SIZE + UNDO_TEXT_SIZE);
+    assert(bytes != NULL);
+
+    U8 *text_stack = bytes + UNDO_STACK_SIZE;
+    UndoElem *undo_stack = (UndoElem*)bytes;
+
+    return (UndoStack) {
+        .text_stack = text_stack,
+        .undo_stack = undo_stack,
+    };
+}
+
+void undo_destroy(UndoStack *st) {
+    vm_dealloc(st->undo_stack, UNDO_STACK_SIZE + UNDO_TEXT_SIZE);
+}
+
+void undo_clear(UndoStack *st) {
+    st->text_stack_head = 0;
+    st->undo_stack_head = 0;
+    st->undo_count = 0;
 }

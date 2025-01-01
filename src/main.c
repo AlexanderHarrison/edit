@@ -912,6 +912,12 @@ int main(int argc, char *argv[]) {
     // gltf window and vulkan -------------------------------------------
 
     W w = window_create(&static_arena);
+    glfwSetWindowUserPointer(w.window, &w);
+    glfwSetCharCallback(w.window, glfw_callback_char);
+    glfwSetKeyCallback(w.window, glfw_callback_key);
+    glfwSetCursorPosCallback(w.window, glfw_callback_mouse_pos);
+    glfwSetMouseButtonCallback(w.window, glfw_callback_mouse_button);
+    glfwSetScrollCallback(w.window, glfw_callback_scroll);
 
     // font atlas -------------------------------------------------------
 
@@ -920,13 +926,6 @@ int main(int argc, char *argv[]) {
     FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
 
     // Editor -----------------------------------------------------------
-
-    glfwSetWindowUserPointer(w.window, &w);
-    glfwSetCharCallback(w.window, glfw_callback_char);
-    glfwSetKeyCallback(w.window, glfw_callback_key);
-    glfwSetCursorPosCallback(w.window, glfw_callback_mouse_pos);
-    glfwSetMouseButtonCallback(w.window, glfw_callback_mouse_button);
-    glfwSetScrollCallback(w.window, glfw_callback_scroll);
 
     const char *file = NULL;
     if (argc > 1) file = argv[1];
