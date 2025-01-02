@@ -14,7 +14,7 @@
 #define STAGING_BUFFER_SIZE (64*MB)
 #define SURFACE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define SURFACE_COLOUR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
-#define SURFACE_PRESENT_MODE VK_PRESENT_MODE_FIFO_KHR
+#define SURFACE_PRESENT_MODE VK_PRESENT_MODE_IMMEDIATE_KHR
 
 W
 window_create(Arena *arena);
@@ -51,7 +51,7 @@ glfw_get_current_monitor(GLFWwindow *window);
 
 // WINDOWING FUNCTION #####################################################
 
-W window_create(Arena *arena) {
+W window_create(Arena *arena) { TRACE
     // GLFW --------------------------------------------------------------------------------
 
     glfwInit();
@@ -66,7 +66,7 @@ W window_create(Arena *arena) {
     // VALIDATION --------------------------------------------------------------------------------
 
     const char *validation_layer = "VK_LAYER_KHRONOS_validation";
-    {
+    SCOPE_TRACE {
         ArenaResetPoint reset = arena_reset_point(arena);
         U32 layer_count;
         VK_ASSERT(vkEnumerateInstanceLayerProperties(&layer_count, NULL));
@@ -86,7 +86,7 @@ W window_create(Arena *arena) {
     // INSTANCES --------------------------------------------------------------------------------
     
     VkInstance instance;
-    {
+    SCOPE_TRACE {
         VkApplicationInfo app_info = {
             .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
             .pApplicationName = PROJECT_NAME,
@@ -120,7 +120,7 @@ W window_create(Arena *arena) {
     };
 
     VkPhysicalDevice phy_device = {0};
-    {
+    SCOPE_TRACE {
         ArenaResetPoint reset = arena_reset_point(arena);
         U32 device_count;
         VK_ASSERT(vkEnumeratePhysicalDevices(instance, &device_count, NULL));
@@ -166,7 +166,7 @@ W window_create(Arena *arena) {
     // QUEUES --------------------------------------------------------------------
 
     U32 queue_family_idx = ~0u;
-    {
+    SCOPE_TRACE {
         ArenaResetPoint reset = arena_reset_point(arena);
         U32 family_count;
         vkGetPhysicalDeviceQueueFamilyProperties(phy_device, &family_count, NULL);
@@ -196,7 +196,7 @@ W window_create(Arena *arena) {
     // LOGICAL DEVICES --------------------------------------------------------------------
 
     VkDevice device;
-    {
+    SCOPE_TRACE {
         F32 queue_priority = 1.0f;
         VkDeviceQueueCreateInfo queue_create_info = {
             .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -227,7 +227,7 @@ W window_create(Arena *arena) {
     // SURFACE STUFF ------------------------------------------------------------------------
 
     VkSurfaceCapabilitiesKHR surface_cap;
-    {
+    SCOPE_TRACE {
         ArenaResetPoint reset = arena_reset_point(arena);
         VK_ASSERT(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phy_device, surface, &surface_cap));
 
@@ -265,7 +265,7 @@ W window_create(Arena *arena) {
     // DESCRIPTOR SET POOL ---------------------------------------------------------------
 
     VkDescriptorPool descriptor_pool;
-    {
+    SCOPE_TRACE {
         VkDescriptorPoolSize pools[] = {
             { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16 },
             { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16 },
@@ -286,7 +286,7 @@ W window_create(Arena *arena) {
     // DESCRIPTOR SET LAYOUTS ---------------------------------------------------------------
 
     VkDescriptorSetLayout descriptor_set_layout_glyphs;
-    {
+    SCOPE_TRACE {
         static const VkDescriptorSetLayoutBinding bindings[] = {
             // atlas
             {
@@ -336,7 +336,7 @@ W window_create(Arena *arena) {
     StaticDataUniform static_data_uniform = {0}; // diffed then filled each frame
     VkBuffer static_data_uniform_buffer;
     VkDeviceMemory static_data_uniform_buffer_memory = {0}; // allocated later
-    {
+    SCOPE_TRACE {
         VkBufferCreateInfo info = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = sizeof(StaticDataUniform),
@@ -348,7 +348,7 @@ W window_create(Arena *arena) {
     // COMMAND POOL ----------------------------------------------------------------------
 
     VkCommandPool cmd_pool;
-    {
+    SCOPE_TRACE {
         VkCommandPoolCreateInfo pool_info = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
@@ -360,7 +360,7 @@ W window_create(Arena *arena) {
     // COMMAND BUFFER ----------------------------------------------------------------------
 
     VkCommandBuffer cmd_buffer;
-    {
+    SCOPE_TRACE {
         VkCommandBufferAllocateInfo alloc_info = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             .commandPool = cmd_pool,
@@ -375,7 +375,7 @@ W window_create(Arena *arena) {
     VkSemaphore image_available;
     VkSemaphore render_finished;
     VkFence in_flight;
-    {
+    SCOPE_TRACE {
         VkSemaphoreCreateInfo sem_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         VkFenceCreateInfo fence_info = { 
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -394,7 +394,7 @@ W window_create(Arena *arena) {
     // STAGING BUFFER --------------------------------------------------------------------
 
     StagingBuffer staging = {0};
-    {
+    SCOPE_TRACE {
         VkBufferCreateInfo info = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = STAGING_BUFFER_SIZE,
@@ -414,7 +414,7 @@ W window_create(Arena *arena) {
     assert(frag_source.ptr != NULL);
 
     VkShaderModule vert_module, frag_module;
-    {
+    SCOPE_TRACE {
         #pragma GCC diagnostic ignored "-Wcast-align"
         VkShaderModuleCreateInfo vert_info = {
             .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -435,7 +435,7 @@ W window_create(Arena *arena) {
     // RENDER PASS -------------------------------------------------------
 
     VkRenderPass pass;
-    {
+    SCOPE_TRACE {
         VkAttachmentDescription colour_attach = {
             .format = SURFACE_FORMAT,
             .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -489,7 +489,7 @@ W window_create(Arena *arena) {
     // PIPELINE -----------------------------------------------------------------
 
     VkPipelineLayout pl_layout;
-    {
+    SCOPE_TRACE {
         VkPipelineLayoutCreateInfo layout_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 1,
@@ -500,7 +500,7 @@ W window_create(Arena *arena) {
     }
 
     VkPipeline pl;
-    {
+    SCOPE_TRACE {
         VkPipelineShaderStageCreateInfo vert_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = VK_SHADER_STAGE_VERTEX_BIT,
@@ -641,7 +641,7 @@ W window_create(Arena *arena) {
     // ALLOC GPU BUFFERS ---------------------------------------------------------------------
 
     // staging buffer
-    {
+    SCOPE_TRACE {
         VK_ASSERT(gpu_alloc_buffer(
             &w, 
             w.staging_buffer.buffer,
@@ -667,7 +667,7 @@ W window_create(Arena *arena) {
 
 // HELDER FUNCTION DEFINITIONS #####################################################
 
-void window_destroy(W *w) {
+void window_destroy(W *w) { TRACE
     VkDevice device = w->device;
     VkInstance instance = w->instance;
 
@@ -696,7 +696,7 @@ void window_destroy(W *w) {
     glfwTerminate();
 }
 
-void gpu_free(W *w, VkDeviceMemory mem) {
+void gpu_free(W *w, VkDeviceMemory mem) { TRACE
     vkFreeMemory(w->device, mem, NULL);
 }
 
@@ -705,7 +705,7 @@ static VkResult gpu_alloc(
     VkMemoryRequirements *mem_req,
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
-) {
+) { TRACE
     U32 mem_idx;
     bool found_mem = false;
     for (U32 i = 0; i < w->phy_mem_props.memoryTypeCount; ++i) {
@@ -736,7 +736,7 @@ VkResult gpu_alloc_buffer(
     VkBuffer buffer, 
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
-) {
+) { TRACE
     VkMemoryRequirements mem_req;
     vkGetBufferMemoryRequirements(w->device, buffer, &mem_req);
     VkResult res = gpu_alloc(w, &mem_req, props, mem);
@@ -749,7 +749,7 @@ VkResult gpu_alloc_image(
     VkImage image, 
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
-) {
+) { TRACE
     VkMemoryRequirements mem_req;
     vkGetImageMemoryRequirements(w->device, image, &mem_req);
     VkResult res = gpu_alloc(w, &mem_req, props, mem);
@@ -772,7 +772,7 @@ void staging_buffer_cmd_copy_to_buffer(
     VkBuffer target,
     U32 copy_count,
     VkBufferCopy *buffer_copies // MUST POINT TO FRAME ARENA
-) {
+) { TRACE
     StagingCopyBufferList *prev = staging_buffer->staging_copies_buffer;
     StagingCopyBufferList *new = ARENA_ALLOC(arena, *new);
     *new = (StagingCopyBufferList) { prev, target, copy_count, buffer_copies };
@@ -785,7 +785,7 @@ void staging_buffer_cmd_copy_to_image(
     VkImage target,
     U32 copy_count,
     VkBufferImageCopy *buffer_image_copies // MUST POINT TO FRAME ARENA
-) {
+) { TRACE
     StagingCopyImageList *prev = staging_buffer->staging_copies_image;
     StagingCopyImageList *new = ARENA_ALLOC(arena, *new);
     *new = (StagingCopyImageList) { prev, target, copy_count, buffer_image_copies };
@@ -798,14 +798,14 @@ void staging_buffer_push_image_transition(
     VkImage target,
     VkImageLayout old_layout,
     VkImageLayout new_layout
-) {
+) { TRACE
     ImageTransitionList *prev = staging_buffer->image_transitions;
     ImageTransitionList *new = ARENA_ALLOC(arena, *new);
     *new = (ImageTransitionList) { prev, target, old_layout, new_layout};
     staging_buffer->image_transitions = new;
 }
 
-void staging_buffer_reset(StagingBuffer *staging_buffer) {
+void staging_buffer_reset(StagingBuffer *staging_buffer) { TRACE
     staging_buffer->staging_head = staging_buffer->mapped_ptr;
     staging_buffer->staging_copies_buffer = NULL;
     staging_buffer->staging_copies_image = NULL;
@@ -814,7 +814,7 @@ void staging_buffer_reset(StagingBuffer *staging_buffer) {
 
 VkDescriptorSet descriptor_set_glyphs_create(
     W *w, FontAtlas *font_atlas, VkBuffer glyphs_buffer
-) {
+) { TRACE
     VkDescriptorSet descriptor_set;
     {
         VkDescriptorSetAllocateInfo info = {
@@ -896,7 +896,7 @@ VkDescriptorSet descriptor_set_glyphs_create(
     return descriptor_set;
 }
 
-void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set) {
+void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set) { TRACE
     vkFreeDescriptorSets(w->device, w->descriptor_pool, 1, &descriptor_set);
 }
 
@@ -906,8 +906,8 @@ void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set) {
 #define SIZE_X FontSize_Count
 #define SIZE_Y 5*2
 
-int main(int argc, char *argv[]) {
-    Arena static_arena = arena_create_sized(1ull << 30); // 1 GB, virtual allocated
+int main(int argc, char *argv[]) { INIT_TRACE
+    Arena static_arena = arena_create_sized(4*GB);
 
     // gltf window and vulkan -------------------------------------------
 
@@ -921,15 +921,15 @@ int main(int argc, char *argv[]) {
 
     // font atlas -------------------------------------------------------
 
-    //const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Medium.ttf";
-    const char *ttf_path = "/usr/share/fonts/TTF/IosevkaFixed-Regular.ttf";
+    const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Regular.ttf";
+    //const char *ttf_path = "/usr/share/fonts/TTF/IosevkaFixed-Regular.ttf";
     FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
 
     // Editor -----------------------------------------------------------
 
     const char *file = NULL;
     if (argc > 1) file = argv[1];
-    Editor editor = editor_create(&static_arena, file);
+    Editor editor = editor_create(&static_arena, NULL, file);
 
     // glyph draw buffer ------------------------------------------------
 
@@ -965,7 +965,7 @@ int main(int argc, char *argv[]) {
         w.inputs.key_held_prev = w.inputs.key_held;
         w.inputs.key_repeating = 0;
         w.inputs.key_special_pressed = 0;
-        glfwPollEvents();
+        glfwWaitEventsTimeout(0.1);
         w.inputs.mouse_in_window = glfwGetWindowAttrib(w.window, GLFW_HOVERED) != 0;
         w.inputs.mouse_pressed = w.inputs.mouse_held & ~w.inputs.mouse_held_prev;
         w.inputs.mouse_released = w.inputs.mouse_held_prev & ~w.inputs.mouse_held;
@@ -1219,12 +1219,12 @@ int main(int argc, char *argv[]) {
         // START RENDER ----------------------------------------------------------
 
         {
-            U8 background_u8[4] = BACKGROUND;
+            RGBA8 background = COLOUR_BACKGROUND;
             VkClearValue clear_colour = { .color = { .float32 = {
-                (float)background_u8[0] / 255.f,
-                (float)background_u8[1] / 255.f,
-                (float)background_u8[2] / 255.f,
-                (float)background_u8[3] / 255.f,
+                (float)background.r / 255.f,
+                (float)background.g / 255.f,
+                (float)background.b / 255.f,
+                (float)background.a / 255.f,
             }}};
             VkRenderPassBeginInfo pass_info = {
                 .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -1331,7 +1331,7 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mods) {
+void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mods) { TRACE
     W *w = glfwGetWindowUserPointer(window);
     if (w->inputs.key_event_count == MAX_EVENTS) return;
 
@@ -1353,19 +1353,19 @@ void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mo
     }
 }
 
-void glfw_callback_char(GLFWwindow *window, unsigned int codepoint) {
+void glfw_callback_char(GLFWwindow *window, unsigned int codepoint) { TRACE
     W *w = glfwGetWindowUserPointer(window);
     if (w->inputs.char_event_count == MAX_EVENTS) return;
     w->inputs.char_events[w->inputs.char_event_count++] = (CharEvent) { codepoint };
 }
 
-void glfw_callback_mouse_pos(GLFWwindow *window, double x, double y) {
+void glfw_callback_mouse_pos(GLFWwindow *window, double x, double y) { TRACE
     W *w = glfwGetWindowUserPointer(window);
     w->inputs.mouse_x = (F32)x;
     w->inputs.mouse_y = (F32)y;
 }
 
-void glfw_callback_mouse_button(GLFWwindow *window, int button, int action, int mods) {
+void glfw_callback_mouse_button(GLFWwindow *window, int button, int action, int mods) { TRACE
     (void)mods;
     W *w = glfwGetWindowUserPointer(window);
     if (action == GLFW_PRESS) {
@@ -1375,7 +1375,7 @@ void glfw_callback_mouse_button(GLFWwindow *window, int button, int action, int 
     }
 }
 
-void glfw_callback_scroll(GLFWwindow *window, double x, double y) {
+void glfw_callback_scroll(GLFWwindow *window, double x, double y) { TRACE
     (void)x;
     W *w = glfwGetWindowUserPointer(window);
     w->inputs.scroll = (F32)y;
@@ -1387,7 +1387,7 @@ Swapchain *swapchain_create(
     VkSurfaceKHR surface,
     VkRenderPass pass,
     Arena *arena
-) {
+) { TRACE
     Swapchain *sc = ARENA_ALLOC(arena, *sc);
 
     VkSurfaceCapabilitiesKHR surface_cap;
@@ -1479,7 +1479,7 @@ Swapchain *swapchain_create(
     return sc;
 }
 
-void swapchain_destroy(VkDevice device, Swapchain *sc) {
+void swapchain_destroy(VkDevice device, Swapchain *sc) { TRACE
     for (U32 i = 0; i < sc->image_count; ++i) {
         vkDestroyFramebuffer(device, sc->framebuffers[i], NULL);
         vkDestroyImageView(device, sc->image_views[i], NULL);
@@ -1487,15 +1487,15 @@ void swapchain_destroy(VkDevice device, Swapchain *sc) {
     vkDestroySwapchainKHR(device, sc->sc, NULL);
 }
 
-static int min_i(int a, int b) {
+static int min_i(int a, int b) { TRACE
     return a < b ? a : b;
 }
 
-static int max_i(int a, int b) {
+static int max_i(int a, int b) { TRACE
     return a > b ? a : b;
 }
 
-GLFWmonitor* glfw_get_current_monitor(GLFWwindow *window) {
+GLFWmonitor* glfw_get_current_monitor(GLFWwindow *window) { TRACE
     // adapted from https://stackoverflow.com/a/31526753
     int wx, wy, ww, wh;
     glfwGetWindowPos(window, &wx, &wy);

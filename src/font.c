@@ -4,9 +4,9 @@
 #include "font.h"
 
 #define GLYPH_LOOKUP_BUFFER_SIZE (256*sizeof(AtlasLocation)*FontSize_Count)
-#define FONT_ATLAS_SIZE 2048
+#define FONT_ATLAS_SIZE 512
 
-FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) {
+FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
     FT_Library library;
     assert(FT_Init_FreeType(&library) == 0);
 
@@ -169,7 +169,7 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) {
                     extent_x = image_suballocator_x;
                     extent_y = image_suballocator_y;
 
-                    if (bitmap->rows > image_suballocator_current_row_height)
+                    if (bitmap->rows >= image_suballocator_current_row_height)
                         image_suballocator_current_row_height = bitmap->rows;
 
                     image_suballocator_x += (U64)bitmap->pitch;
@@ -238,7 +238,7 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) {
     return atlas;
 }
 
-void font_atlas_destroy(W *w, FontAtlas *atlas) {
+void font_atlas_destroy(W *w, FontAtlas *atlas) { TRACE
     gpu_free(w, atlas->glyph_lookup_buffer_memory);
     gpu_free(w, atlas->atlas_image_memory);
     vkDestroyBuffer(w->device, atlas->glyph_lookup_buffer, NULL);

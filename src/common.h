@@ -1,25 +1,75 @@
 #ifndef COMMON_H_
 #define COMMON_H_
 
+// add filetype macros in dirent
+#define _DEFAULT_SOURCE
+
 #include <math.h>
 #include <tools.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#define CODE_FONT_SIZE FontSize_14
+// timing information
+#if 0
+#include <execinfo.h>
+static U8 backtrace_buffer[1024];
+void timer_print(Timer *timer) {
+    double elapsed = timer_elapsed_ms(timer);
+    if (elapsed > 1.0) {
+        int frames = backtrace((void*) &backtrace_buffer, 4);
+        char **syms = backtrace_symbols((void*) &backtrace_buffer, frames);
+        for (int i = frames-1; i > 0; --i) {
+            printf("%s:\n", syms[i]);
+        }
+        printf("--------- %fms\n", elapsed);
+        free(syms);
+    }
+}
+
+
+#define INIT_TRACE
+#define TRACE Timer __timer __attribute__((__cleanup__(timer_print))) = timer_start();
+#define SCOPE_TRACE
+// function call information
+#elif 0
+U32 global_depth = 1;
+void depth_decrement(int *__unused) {
+    (void)__unused;
+    global_depth--;
+}
+#define INIT_TRACE
+#define TRACE  printf("%*c%s\n", global_depth++, ' ', __func__); int __unused __attribute__((__cleanup__(depth_decrement))) = 0;
+#define SCOPE_TRACE
+// no tracing
+#else
+#define INIT_TRACE
+#define TRACE
+#define SCOPE_TRACE
+#endif
+
+#define CODE_FONT_SIZE FontSize_13
 #define CODE_LINE_SPACING 15.f
 #define CODE_SCROLL_SPEED_SLOW 0.2f
 #define CODE_SCROLL_SPEED_FAST 0.6f
-#define ANIM_EXP_FACTOR 0.2f
+#define ANIM_EXP_FACTOR 1.0f
 
-#define BACKGROUND { 4, 4, 4, 255 }
-#define FOREGROUND { 170, 170, 170, 255 }
-#define SELECT { 40, 40, 40, 255 }
-#define COMMENT { 230, 100, 100, 255 }
-#define STRING { 100, 160, 100, 255 }
+#define SELECTION_GROUP_BAR_WIDTH 2.f
+#define FILETREE_WIDTH 200.f
+#define FILETREE_INDENTATION_WIDTH 10.f
 
-#define MAX_GLYPHS 4096
+#define COLOUR_RED      { 230, 100, 100, 255 }
+#define COLOUR_ORANGE   { 160, 100,  20, 255 }
+#define COLOUR_GREEN    { 100, 160, 100, 255 }
+#define COLOUR_BLUE     { 100, 100, 230, 255 }
+
+#define COLOUR_BACKGROUND   { 4, 4, 4, 255 }
+#define COLOUR_FOREGROUND   { 170, 170, 170, 255 }
+#define COLOUR_SELECT       { 40, 40, 40, 255 }
+#define COLOUR_COMMENT      COLOUR_RED
+#define COLOUR_STRING       COLOUR_GREEN
+
+#define MAX_GLYPHS 8192
 #define MAX_GLYPHS_SIZE (MAX_GLYPHS*sizeof(Glyph))
 
 #define KB (1ull << 10)

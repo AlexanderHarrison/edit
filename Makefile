@@ -2,7 +2,7 @@
 
 OUT := build/edit
 FILES := src/main.c /usr/local/lib/tools.o
-BASE_FLAGS := -g -fmax-errors=1 -std=c11 -pipe -O2
+BASE_FLAGS := -g -rdynamic -fuse-ld=mold -fmax-errors=1 -std=c11 -pipe -O2
 
 WARN_FLAGS := -Wall -Wextra -Wpedantic -Wuninitialized -Wcast-qual -Wdisabled-optimization -Winit-self -Wlogical-op -Wmissing-include-dirs -Wredundant-decls -Wshadow -Wundef -Wstrict-prototypes -Wpointer-to-int-cast -Wint-to-pointer-cast -Wconversion -Wduplicated-cond -Wduplicated-branches -Wformat=2 -Wshift-overflow=2 -Wint-in-bool-context -Wvector-operation-performance -Wvla -Wdisabled-optimization -Wredundant-decls -Wmissing-parameter-type -Wold-style-declaration -Wlogical-not-parentheses -Waddress -Wmemset-transposed-args -Wmemset-elt-size -Wsizeof-pointer-memaccess -Wwrite-strings -Wtrampolines -Werror=implicit-function-declaration -Winvalid-pch
 

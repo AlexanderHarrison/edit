@@ -37,7 +37,7 @@
 //   e - contract selection group and select last new group
 //   E - expand selection group and select last new group
 
-UndoStack   undo_create(void);
+UndoStack   undo_create(Arena *arena);
 void        undo_destroy(UndoStack *st);
 void        undo_clear(UndoStack *st);
 UndoElem   *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op);
@@ -53,22 +53,40 @@ void        editor_selection_trim(Editor *ed);
 
 void        editor_undo(Editor *ed);
 void        editor_redo(Editor *ed);
-U8          editor_text(Editor *ed, I64 byte);
+static inline U8 editor_text(Editor *ed, I64 byte);
 void        editor_text_remove(Editor *ed, I64 start, I64 end);
 void        editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
 // same as above, but does not add to the undo stack
 void        editor_text_remove_raw(Editor *ed, I64 start, I64 end);
 void        editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length);
 
-Editor editor_create(Arena *arena, const char *filepath) {
+FileTree    filetree_create(Arena *arena);
+void        filetree_clear(FileTree *ft);
+void        filetree_open_dir(FileTree *ft, U32 dir_index);
+void        filetree_set_directory(FileTree *ft, const char *dirpath);
+
+// returns number of glyphs written
+U64 write_string_terminated(Glyph *glyphs, U8 *str, FontAtlas *font_atlas, RGBA8 colour, F32 x, F32 y, F32 max_width);
+
+// EDITOR ####################################################################
+
+Editor editor_create(Arena *arena, const char *working_dir, const char *filepath) { TRACE
     Glyph *glyphs = ARENA_ALLOC_ARRAY(arena, *glyphs, MAX_GLYPHS);
+
+    FileTree filetree = filetree_create(arena);
+    if (working_dir == NULL) {
+        char buf[512];
+        filetree_set_directory(&filetree, getcwd(buf, sizeof(buf)));
+    } else {
+        filetree_set_directory(&filetree, working_dir);
+    }
 
     Editor ed = {
         .arena = arena,
-        .undo_stack = undo_create(),
+        .undo_stack = undo_create(arena),
+        .filetree = filetree,
         .glyphs = glyphs,
-        .selection_group = Group_Paragraph,
-        // align to 16 cuz we will be copying to and from this a lot
+        .selection_group = Group_Line,
         .copied_text = arena_alloc(arena, COPY_MAX_LENGTH, 16),
     };
 
@@ -79,7 +97,7 @@ Editor editor_create(Arena *arena, const char *filepath) {
     return ed;
 }
 
-void editor_destroy(Editor *ed) {
+void editor_destroy(Editor *ed) { TRACE
     undo_destroy(&ed->undo_stack);
     editor_dealloc_file(ed);
 }
@@ -88,29 +106,37 @@ static inline bool is(U64 held, U64 mask) {
     return (held & mask) == mask;
 }
 
-void editor_group_expand(Editor *ed) {
-    if (ed->selection_group == 0)
-        ed->selection_group = Group_Count - 1;
-    else
-        ed->selection_group--;
+void editor_group_expand(Editor *ed) { TRACE
+    static const Group lut[Group_Count] = {
+       Group_Paragraph, // Group_Paragraph
+       Group_Line,      // Group_Line
+       Group_Line,      // Group_Word
+       Group_Word,      // Group_Character
+    };
+    ed->selection_group = lut[ed->selection_group];
 }
 
-void editor_group_contract(Editor *ed) {
-    if (ed->selection_group == Group_Count - 1)
-        ed->selection_group = 0;
-    else
-        ed->selection_group++;
+void editor_group_contract(Editor *ed) { TRACE
+    static const Group lut[Group_Count] = {
+       Group_Line,      // Group_Paragraph
+       Group_Word,      // Group_Line
+       Group_Character, // Group_Word
+       Group_Character, // Group_Character
+    };
+    ed->selection_group = lut[ed->selection_group];
 }
 
-#define SELECTION_GROUP_BAR_WIDTH 2.f
+GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport) { TRACE
+    Rect filetree_v = viewport;
+    filetree_v.w = FILETREE_WIDTH;
 
-GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport) {
-    Rect text_v = viewport;
-    text_v.x += SELECTION_GROUP_BAR_WIDTH;
-    text_v.w -= SELECTION_GROUP_BAR_WIDTH;
-
-    Rect selection_bar_v = viewport;
+    Rect selection_bar_v = filetree_v;
+    selection_bar_v.x += filetree_v.w;
     selection_bar_v.w = SELECTION_GROUP_BAR_WIDTH;
+
+    Rect text_v = selection_bar_v;
+    text_v.x += selection_bar_v.w;
+    text_v.w = viewport.w - filetree_v.w - selection_bar_v.w;
 
     // UPDATE ---------------------------------------------------------------
 
@@ -337,16 +363,9 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
         RGBA8 selection_bar_colour;
 
         if (ed->mode == Mode_Normal) {
-            static const RGBA8 selection_colours[Group_Count] = {
-                {255, 0, 0, 255},
-                {255, 130, 0, 255},
-                {255, 255, 0, 255},
-                {0, 255, 0, 255},
-            };
-
             selection_bar_colour = selection_colours[ed->selection_group];
         } else if (ed->mode == Mode_Insert) {
-            selection_bar_colour = (RGBA8)FOREGROUND;
+            selection_bar_colour = (RGBA8)COLOUR_FOREGROUND;
         }
 
         ed->glyphs[glyph_count++] = (Glyph) {
@@ -370,11 +389,10 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 .x = rect.x,
                 .y = rect.y,
                 .glyph_idx = special_glyph_rect((U32)rect.w, (U32)rect.h),
-                .colour = SELECT,
+                .colour = COLOUR_SELECT,
             };
 
             Range line = editor_group(ed, Group_Line, a);
-
 
             line_i += 1.f;
             if (line.end >= b) break;
@@ -388,7 +406,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             .x = rect.x,
             .y = rect.y,
             .glyph_idx = special_glyph_rect((U32)rect.w, (U32)rect.h),
-            .colour = FOREGROUND,
+            .colour = COLOUR_FOREGROUND,
         };
     }
 
@@ -410,12 +428,12 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
     };
 
     static const RGBA8 state_colours[State_Count] = {
-        FOREGROUND,
-        COMMENT,
-        COMMENT,
-        STRING,
-        STRING,
-        STRING
+        COLOUR_FOREGROUND,
+        COLOUR_COMMENT,
+        COLOUR_COMMENT,
+        COLOUR_STRING,
+        COLOUR_STRING,
+        COLOUR_STRING
     };
 
     U64 state = State_Normal;
@@ -494,11 +512,75 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
         pen_x += info.advance_width;
     }
 
+    // WRITE FILETREE GLYPHS ----------------------------------------------------
+    ArenaResetPoint reset_point = arena_reset_point(ed->arena);
+    {
+        FileTree *ft = &ed->filetree;
+
+        Dir *root_dir = &ft->dir_tree[0];
+        glyph_count += write_string_terminated(
+            &ed->glyphs[glyph_count],
+            ft->name_buffer + root_dir->name_offset,
+            font_atlas,
+            (RGBA8) COLOUR_RED,
+            filetree_v.x, filetree_v.y + CODE_LINE_SPACING, filetree_v.w
+        );
+
+        typedef struct DirInWriting {
+            Dir *dir;
+            U16 child;
+        } DirInWriting;
+
+        DirInWriting *dirs_writing = ARENA_ALLOC_ARRAY(ed->arena, *dirs_writing, 4096);
+        dirs_writing[0] = (DirInWriting) { root_dir, 0 };
+
+        I64 depth = 0;
+        F32 y = filetree_v.y + CODE_LINE_SPACING * 2;
+        while (depth >= 0) {
+            F32 x = FILETREE_INDENTATION_WIDTH * (F32)depth + filetree_v.x;
+            DirInWriting *in_writing = &dirs_writing[depth];
+            Dir *d = in_writing->dir;
+
+            if (in_writing->child == d->child_count) {
+                U8 *file_name = ft->name_buffer + d->file_names_offset;
+                for (U16 file_i = 0; file_i < d->file_count; ++file_i) {
+                    glyph_count += write_string_terminated(
+                        &ed->glyphs[glyph_count],
+                        file_name,
+                        font_atlas,
+                        (RGBA8) COLOUR_FOREGROUND,
+                        x, y, filetree_v.w - x
+                    );
+                    y += CODE_LINE_SPACING;
+                    file_name += strlen((char*)file_name) + 1;
+                }
+
+                depth--;
+                continue;
+            }
+
+            Dir *child = &ft->dir_tree[d->child_index + in_writing->child];
+
+            glyph_count += write_string_terminated(
+                &ed->glyphs[glyph_count],
+                ft->name_buffer + child->name_offset,
+                font_atlas,
+                (RGBA8) {100, 100, 255, 255},
+                x, y, filetree_v.w - x
+            );
+            y += CODE_LINE_SPACING;
+            in_writing->child++;
+            depth++;
+            dirs_writing[depth] = (DirInWriting) { child, 0 };
+        }
+    }
+    arena_reset(ed->arena, &reset_point);
+
     return (GlyphSlice) { ed->glyphs, glyph_count };
 }
 
 // the returned rect will run from a, until b or the end of the line, whichever is shortest.
-Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v) {
+Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v) { TRACE
     Range line = editor_group(ed, Group_Line, a);
     I64 line_i = editor_line_index(ed, a);
 
@@ -536,7 +618,7 @@ Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *tex
     return (Rect) { x, y, width, height };
 }
 
-int editor_load_filepath(Editor *ed, const char *filepath) {
+int editor_load_filepath(Editor *ed, const char *filepath) { TRACE
     if (filepath == NULL) return 0;
 
     U32 filepath_length = (U32)strlen(filepath);
@@ -559,20 +641,20 @@ int editor_load_filepath(Editor *ed, const char *filepath) {
     return 0;
 }
 
-void editor_dealloc_file(Editor *ed) {
+void editor_dealloc_file(Editor *ed) { TRACE
     ed->filepath_length = 0;
     ed->filepath = NULL;
     ed->text_length = 0;
     ed->text = NULL;
 }
 
-U8 editor_text(Editor *ed, I64 byte) {
+static inline U8 editor_text(Editor *ed, I64 byte) {
     if (byte < 0) return '\n';
     if (byte >= ed->text_length) return '\n';
     return ed->text[byte];
 }
 
-Range editor_group_range_paragraph(Editor *ed, I64 byte) {
+Range editor_group_range_paragraph(Editor *ed, I64 byte) { TRACE
     // not much we can do here
     if (byte < 0) byte = 0;
     if (byte >= ed->text_length) byte = ed->text_length;
@@ -590,7 +672,7 @@ Range editor_group_range_paragraph(Editor *ed, I64 byte) {
     return (Range) { start, end };
 }
 
-Range editor_group_range_line(Editor *ed, I64 byte) {
+Range editor_group_range_line(Editor *ed, I64 byte) { TRACE
     if (byte < 0 || byte > ed->text_length)
         return (Range) { byte, byte+1 };
 
@@ -602,22 +684,6 @@ Range editor_group_range_line(Editor *ed, I64 byte) {
     while (editor_text(ed, end++) != '\n') {};
 
     return (Range) { start, end };
-}
-
-bool char_word_like(U8 c) {
-    bool caps = ('A' <= c) & (c <= 'Z');
-    bool lower = ('a' <= c) & (c <= 'z');
-    bool num = ('0' <= c) & (c <= '9');
-    bool other = c == '_';
-    return caps | lower | num | other;
-}
-
-bool char_whitespace(U8 c) {
-    return c == ' ' || c == '\t' || c == '\n';
-}
-
-bool char_symbolic(U8 c) {
-    return !char_whitespace(c) && !char_word_like(c);
 }
 
 //Range editor_group_range_word(Editor *ed, I64 byte) {
@@ -640,7 +706,7 @@ bool char_symbolic(U8 c) {
 //    return (Range) { start, end };
 //}
 
-Range editor_group_range_word(Editor *ed, I64 byte) {
+Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
     // not much we can do here
     if (byte < 0) byte = 0;
     if (byte >= ed->text_length) byte = ed->text_length-1;
@@ -668,12 +734,12 @@ Range editor_group_range_word(Editor *ed, I64 byte) {
     return (Range) { start, end };
 }
 
-Range editor_group_range_char(Editor *ed, I64 byte) {
+Range editor_group_range_char(Editor *ed, I64 byte) { TRACE
     (void)ed;
     return (Range) { byte, byte+1 };
 }
 
-Range editor_group(Editor *ed, Group group, I64 byte) {
+Range editor_group(Editor *ed, Group group, I64 byte) { TRACE
     switch (group) {
         case Group_Paragraph:
             return editor_group_range_paragraph(ed, byte);
@@ -688,15 +754,15 @@ Range editor_group(Editor *ed, Group group, I64 byte) {
     }
 }
 
-Range editor_group_next(Editor *ed, Group group, I64 current_group_end) {
+Range editor_group_next(Editor *ed, Group group, I64 current_group_end) { TRACE
     return editor_group(ed, group, current_group_end);
 }
 
-Range editor_group_prev(Editor *ed, Group group, I64 current_group_start) {
+Range editor_group_prev(Editor *ed, Group group, I64 current_group_start) { TRACE
     return editor_group(ed, group, current_group_start-1);
 }
 
-I64 editor_line_index(Editor *ed, I64 byte) {
+I64 editor_line_index(Editor *ed, I64 byte) { TRACE
     I64 line_i = 0;
     for (I64 i = 0; i < byte; ++i) {
         if (editor_text(ed, i) == '\n')
@@ -705,7 +771,7 @@ I64 editor_line_index(Editor *ed, I64 byte) {
     return line_i;
 }
 
-void editor_text_remove(Editor *ed, I64 start, I64 end) {
+void editor_text_remove(Editor *ed, I64 start, I64 end) { TRACE
     if (start > end) {
         I64 temp = start;
         start = end;
@@ -720,7 +786,7 @@ void editor_text_remove(Editor *ed, I64 start, I64 end) {
     editor_text_remove_raw(ed, start, end);
 }
 
-void editor_text_remove_raw(Editor *ed, I64 start, I64 end) {
+void editor_text_remove_raw(Editor *ed, I64 start, I64 end) { TRACE
     if (start <= ed->selection_a && ed->selection_a < end) {
         ed->selection_a = start;
     } else if (end <= ed->selection_a) {
@@ -743,7 +809,7 @@ void editor_text_remove_raw(Editor *ed, I64 start, I64 end) {
     }
 }
 
-void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) {
+void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
     assert(length >= 0);
     assert(ed->text_length + length <= (I64)TEXT_MAX_LENGTH);
 
@@ -751,7 +817,7 @@ void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) {
     editor_text_insert_raw(ed, at, text, length);
 }
 
-void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) {
+void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
     if (length == 0) return;
 
     if (at <= ed->selection_a)
@@ -785,7 +851,7 @@ void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) {
     }
 }
 
-void editor_selection_trim(Editor *ed) {
+void editor_selection_trim(Editor *ed) { TRACE
     I64 a = ed->selection_a;
     I64 b = ed->selection_b;
     while (a < b && char_whitespace(editor_text(ed, a)))
@@ -796,7 +862,9 @@ void editor_selection_trim(Editor *ed) {
     ed->selection_b = b;
 }
 
-void editor_undo(Editor *ed) {
+// UNDO REDO ####################################################################
+
+void editor_undo(Editor *ed) { TRACE
     UndoStack *st = &ed->undo_stack;
     if (st->undo_stack_head == 0) return;
 
@@ -818,7 +886,7 @@ void editor_undo(Editor *ed) {
     }
 }
 
-void editor_redo(Editor *ed) {
+void editor_redo(Editor *ed) { TRACE
     UndoStack *st = &ed->undo_stack;
     if (st->undo_stack_head == st->undo_count) return;
 
@@ -836,7 +904,7 @@ void editor_redo(Editor *ed) {
     }
 }
 
-UndoElem *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op) {
+UndoElem *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op) { TRACE
     if (text_length == 0) return NULL;
 
     assert(text_length <= UINT32_MAX);
@@ -850,12 +918,9 @@ UndoElem *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp o
     return new_elem;
 }
 
-UndoStack undo_create(void) {
-    U8 *bytes = vm_alloc(UNDO_STACK_SIZE + UNDO_TEXT_SIZE);
-    assert(bytes != NULL);
-
-    U8 *text_stack = bytes + UNDO_STACK_SIZE;
-    UndoElem *undo_stack = (UndoElem*)bytes;
+UndoStack undo_create(Arena *arena) { TRACE
+    U8 *text_stack = arena_alloc(arena, UNDO_TEXT_SIZE, page_size());
+    UndoElem *undo_stack = arena_alloc(arena, UNDO_STACK_SIZE, page_size());
 
     return (UndoStack) {
         .text_stack = text_stack,
@@ -863,12 +928,151 @@ UndoStack undo_create(void) {
     };
 }
 
-void undo_destroy(UndoStack *st) {
+void undo_destroy(UndoStack *st) { TRACE
     vm_dealloc(st->undo_stack, UNDO_STACK_SIZE + UNDO_TEXT_SIZE);
 }
 
-void undo_clear(UndoStack *st) {
+void undo_clear(UndoStack *st) { TRACE
     st->text_stack_head = 0;
     st->undo_stack_head = 0;
     st->undo_count = 0;
+}
+
+// FILETREE ####################################################################
+
+FileTree filetree_create(Arena *arena) { TRACE
+    Dir *dir_tree = arena_alloc(arena, FILETREE_MAX_ENTRY_SIZE, page_size());
+    U8 *name_buffer = arena_alloc(arena, FILETREE_MAX_TEXT_SIZE, page_size());
+
+    return (FileTree) {
+        .name_buffer = name_buffer,
+        .dir_tree = dir_tree,
+    };
+}
+
+static U32 filetree_push_name(FileTree *ft, const char *name) { TRACE
+    U32 name_offset = ft->text_buffer_head;
+    U8 *null_term = (U8*)stpcpy((char*)ft->name_buffer + name_offset, name);
+    ft->text_buffer_head = (U32)(null_term - ft->name_buffer) + 1;
+    return name_offset;
+}
+
+void filetree_clear(FileTree *ft) { TRACE
+    ft->text_buffer_head = 0;
+    ft->dir_count = 0;
+}
+
+static int filter_dir(const struct dirent *entry) {
+    return entry->d_type == DT_DIR && entry->d_name[0] != '.';
+}
+//static int filter_dir_hidden(const struct dirent *entry) { return entry->d_type == DT_DIR; }
+static int filter_file(const struct dirent *entry) {
+    return entry->d_type == DT_REG && entry->d_name[0] != '.';
+}
+//static int filter_file_hidden(const struct dirent *entry) { return entry->d_type == DT_REG; }
+
+static void filetree_load_dir(FileTree *ft, U32 dir_index) { TRACE
+    Dir *dir_entry = &ft->dir_tree[dir_index];
+    U8 *dirpath = ft->name_buffer + dir_entry->name_offset;
+
+    //DIR *dir = opendir((char*)dirpath);
+    //if (dir == NULL) return;
+
+    struct dirent **sorted_entries;
+
+    {// iter child directories
+        int dirnum = scandir((char*)dirpath, &sorted_entries, filter_dir, alphasort);
+        assert(dirnum >= 0);
+        U16 child_index = (U16)ft->dir_count;
+
+        for (int dir = 0; dir < dirnum; ++dir) {
+            U32 name_offset = filetree_push_name(ft, sorted_entries[dir]->d_name);
+            //free(sorted_entries[dir]->d_name);
+            ft->dir_tree[ft->dir_count++] = (Dir) {
+                .name_offset = name_offset,
+            };
+        }
+
+        free(sorted_entries);
+
+        dir_entry->child_index = child_index;
+        dir_entry->child_count = (U16)dirnum;
+    }
+
+    {// iter child files
+        int filenum = scandir((char*)dirpath, &sorted_entries, filter_file, alphasort);
+        assert(filenum >= 0);
+        dir_entry->file_names_offset = ft->text_buffer_head;
+
+        for (int file = 0; file < filenum; ++file) {
+            filetree_push_name(ft, sorted_entries[file]->d_name);
+            //free(sorted_entries[file]->d_name);
+        }
+
+        dir_entry->file_count = (U16)filenum;
+
+        free(sorted_entries);
+    }
+
+    dir_entry->flags |= DirFlag_Loaded;
+}
+
+void filetree_open_dir(FileTree *ft, U32 dir_index) { TRACE
+    Dir *dir = &ft->dir_tree[dir_index];
+    if ((dir->flags & DirFlag_Loaded) == 0)
+        filetree_load_dir(ft, dir_index);
+    dir->flags |= DirFlag_Open;
+}
+
+void filetree_set_directory(FileTree *ft, const char *dirpath) { TRACE
+    filetree_clear(ft);
+
+    DIR *dir = opendir(dirpath);
+    if (dir == NULL) return;
+
+    U32 name_offset = filetree_push_name(ft, dirpath);
+    ft->dir_count = 1;
+    ft->dir_tree[0] = (Dir) {
+        .name_offset = name_offset,
+    };
+    closedir(dir);
+    filetree_open_dir(ft, 0);
+
+
+    Dir *d = &ft->dir_tree[0];
+    U8 *f = ft->name_buffer + d->file_names_offset;
+    for (int i = 0; i < d->file_count; ++i) {
+        f += strlen((char*)f) + 1;
+    }
+}
+
+// returns number of glyphs written
+U64 write_string_terminated(
+    Glyph *glyphs,
+    U8 *str,
+    FontAtlas *font_atlas,
+    RGBA8 colour,
+    F32 x, F32 y, F32 max_width
+) { TRACE
+    U64 glyphs_written = 0;
+    while (1) {
+        U8 ch = *str;
+        if (ch == 0) break;
+
+        U32 glyph_idx = glyph_lookup_idx(CODE_FONT_SIZE, ch);
+        GlyphInfo info = font_atlas->glyph_info[glyph_idx];
+
+        if (x + info.advance_width > max_width) break;
+
+        glyphs[glyphs_written++] = (Glyph) {
+            .x = x + info.offset_x,
+            .y = y + info.offset_y,
+            .glyph_idx = glyph_idx,
+            .colour = colour,
+        };
+        x += info.advance_width;
+
+        str++;
+    }
+    return glyphs_written;
 }
