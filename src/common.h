@@ -49,7 +49,7 @@ void depth_decrement(int *__unused) {
 #endif
 
 #define CODE_FONT_SIZE FontSize_13
-#define CODE_LINE_SPACING 15.f
+#define CODE_LINE_SPACING 17.f
 #define CODE_SCROLL_SPEED_SLOW 0.2f
 #define CODE_SCROLL_SPEED_FAST 0.6f
 #define ANIM_EXP_FACTOR 1.0f
@@ -110,6 +110,7 @@ typedef struct Inputs {
     U64 key_repeating;
     // starting from GLFW_KEY_ESCAPE
     U64 key_special_pressed;
+    U64 key_special_repeating;
     U32 modifiers;
 
     // mouse

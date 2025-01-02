@@ -26,8 +26,8 @@
 //
 // COPY PASTE ----------------------------------------------------------
 //   d - cut selection and select next group
-//   y (todo) - copy selection
-//   p (todo) - paste
+//   y - copy selection
+//   p - paste
 //
 // MISC ----------------------------------------------------------------
 // C-s - save
@@ -156,12 +156,11 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
             bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
             bool shift = is(modifiers, GLFW_MOD_SHIFT);
-            (void)shift;
 
-            if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_U)))
+            if (!ctrl && !shift && is(pressed | repeating, key_mask(GLFW_KEY_U)))
                 editor_undo(ed);
 
-            if (ctrl && !shift && is(pressed, key_mask(GLFW_KEY_R)))
+            if (ctrl && !shift && is(pressed | repeating, key_mask(GLFW_KEY_R)))
                 editor_redo(ed);
 
             if (is(pressed, key_mask(GLFW_KEY_H))) {
@@ -328,6 +327,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
         }
         case Mode_Insert: {
             U64 special_pressed = w->inputs.key_special_pressed;
+            U64 special_repeating = w->inputs.key_special_repeating;
 
             bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
             bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
@@ -349,12 +349,35 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             }
 
             if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) {
-                U8 newline = '\n';
-                editor_text_insert(ed, ed->mode_data.insert_cursor, &newline, 1);
-                ed->mode_data.insert_cursor += 1;
+                Range line = editor_group(ed, Group_Line, ed->mode_data.insert_cursor);
+                I64 indent = 0;
+                while (editor_text(ed, line.start++) == ' ')
+                    indent++;
+
+                U8 *text = ARENA_ALLOC_ARRAY(&w->frame_arena, U8, (U64)(indent+1));
+                text[0] = '\n';
+                for (I64 i = 1; i <= indent; ++i)
+                    text[i] = ' ';
+
+                editor_text_insert(ed, ed->mode_data.insert_cursor, text, indent+1);
+                ed->mode_data.insert_cursor += indent+1;
             }
 
-            if (is(special_pressed, special_mask(GLFW_KEY_BACKSPACE))) {
+            if (is(special_pressed, special_mask(GLFW_KEY_TAB))) {
+                Range line = editor_group(ed, Group_Line, ed->mode_data.insert_cursor);
+                I64 spaces = 1;
+                while ((line.end+spaces) % 4 != 0)
+                    spaces++;
+
+                U8 *text = ARENA_ALLOC_ARRAY(&w->frame_arena, U8, (U64)spaces);
+                for (I64 i = 0; i < spaces; ++i)
+                    text[i] = ' ';
+
+                editor_text_insert(ed, ed->mode_data.insert_cursor, text, spaces);
+                ed->mode_data.insert_cursor += spaces;
+            }
+
+            if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
                 ed->mode_data.insert_cursor -= 1;
                 editor_text_remove(ed, ed->mode_data.insert_cursor, ed->mode_data.insert_cursor+1);
             }
@@ -483,7 +506,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
     } else if (ed->mode == Mode_Insert) {
         I64 cursor = ed->mode_data.insert_cursor;
         Rect rect = editor_line_rect(ed, font_atlas, cursor, cursor, &text_v);
-        rect.w = 3.f;
+        rect.w = 2.f;
         ed->glyphs[glyph_count++] = (Glyph) {
             .x = rect.x,
             .y = rect.y,
