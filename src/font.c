@@ -8,10 +8,10 @@
 
 FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
     FT_Library library;
-    assert(FT_Init_FreeType(&library) == 0);
+    expect(FT_Init_FreeType(&library) == 0);
 
     FT_Face face;
-    assert(FT_New_Face(library, ttf_path, 0, &face) == 0);
+    expect(FT_New_Face(library, ttf_path, 0, &face) == 0);
 
     FontAtlas *atlas = ARENA_ALLOC(arena, *atlas);
 
@@ -105,7 +105,7 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
 
         for (U64 font_size_i = 0; font_size_i < FontSize_Count; ++font_size_i) {
             // TODO: scale factor calculation
-            assert(FT_Set_Char_Size(face, 0, (I64)font_size_px[font_size_i] * 64, 0, 72.0f) == 0);
+            expect(FT_Set_Char_Size(face, 0, (I64)font_size_px[font_size_i] * 64, 0, 72.0f) == 0);
 
             atlas->descent[font_size_i] = (F32)face->size->metrics.descender / 64.f;
             atlas->ascent[font_size_i] = (F32)face->size->metrics.ascender / 64.f;
@@ -119,10 +119,10 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
                 FT_Bitmap *bitmap;
                 FT_GlyphSlot glyph;
                 {
-                    assert(FT_Load_Char(face, ch, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL) == 0);
+                    expect(FT_Load_Char(face, ch, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL) == 0);
 
                     glyph = face->glyph;
-                    assert(glyph != NULL);
+                    expect(glyph != NULL);
 
                     bitmap = &glyph->bitmap;
                     if (bitmap->width * bitmap->rows == 0) {
@@ -136,7 +136,7 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
 
                         continue;
                     }
-                    assert(bitmap->pitch > 0);
+                    expect(bitmap->pitch > 0);
                 }
 
                 // copy glyph details -----------------
@@ -163,8 +163,8 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
                         image_suballocator_x = 0;
                     }
 
-                    assert((U64)bitmap->pitch <= FONT_ATLAS_SIZE);
-                    assert(image_suballocator_y + bitmap->rows <= FONT_ATLAS_SIZE);
+                    expect((U64)bitmap->pitch <= FONT_ATLAS_SIZE);
+                    expect(image_suballocator_y + bitmap->rows <= FONT_ATLAS_SIZE);
 
                     extent_x = image_suballocator_x;
                     extent_y = image_suballocator_y;
@@ -233,7 +233,7 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
     // END ----------------------------------------------------------------------------
 
     FT_Done_Face(face);
-    assert(FT_Done_FreeType(library) == 0);
+    expect(FT_Done_FreeType(library) == 0);
 
     return atlas;
 }

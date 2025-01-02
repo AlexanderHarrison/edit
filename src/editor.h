@@ -17,14 +17,18 @@
 
 #define FILETREE_MAX_ENTRY_SIZE (64ul*MB)
 #define FILETREE_MAX_TEXT_SIZE (64ul*MB)
+#define FILETREE_MAX_ROW_SIZE (64ul*MB)
 #define FILETREE_MAX_ENTRY_COUNT (FILETREE_MAX_ENTRY_SIZE / sizeof(Entry))
+#define FILETREE_MAX_ROW_COUNT (FILETREE_MAX_ROW_SIZE / sizeof(FileTreeRow))
 
 enum DirFlags {
     DirFlag_Open = (1u << 0),
     DirFlag_Loaded = (1u << 1),
 };
 
+// TODO just use pointers man
 typedef struct Dir {
+    struct Dir *parent;
     U32 name_offset;
     U32 file_names_offset;
     U16 child_index;
@@ -33,12 +37,28 @@ typedef struct Dir {
     U16 flags;
 } Dir;
 
+typedef enum EntryType {
+    EntryType_File,
+    EntryType_Dir,
+} EntryType;
+
+typedef struct FileTreeRow {
+    U8 entry_type;
+    U32 depth;
+    Dir *parent;
+    union {
+        Dir *dir;
+        U8 *filename;
+    };
+} FileTreeRow;
+
 typedef struct FileTree {
     U8 *name_buffer;
     Dir *dir_tree;
-    U8 *dirpath;
     U32 text_buffer_head;
     U32 dir_count;
+    FileTreeRow *rows;
+    U32 row_count;
 } FileTree;
 
 typedef struct Range {
@@ -72,6 +92,7 @@ static const RGBA8 selection_colours[Group_Count] = {
 typedef enum Mode {
     Mode_Normal,
     Mode_Insert,
+    Mode_FileSelect,
 } Mode;
 
 typedef enum UndoOp {
@@ -115,6 +136,7 @@ typedef struct Editor {
     union {
         I64 insert_cursor;
     } mode_data;
+    I64 file_select_row;
 
     // animation values - do not set these directly
     F32 scroll_y_visual;
@@ -122,7 +144,7 @@ typedef struct Editor {
 
 // if working_dir is NULL, then will get it from getcwd
 Editor
-editor_create(Arena *arena, const char *working_dir, const char *filepath);
+editor_create(W *w, Arena *arena, const char *working_dir, const char *filepath);
 
 void
 editor_destroy(Editor *ed);

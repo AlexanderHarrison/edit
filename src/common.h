@@ -62,6 +62,7 @@ void depth_decrement(int *__unused) {
 #define COLOUR_ORANGE   { 160, 100,  20, 255 }
 #define COLOUR_GREEN    { 100, 160, 100, 255 }
 #define COLOUR_BLUE     { 100, 100, 230, 255 }
+#define COLOUR_PURPLE   { 140, 20, 100, 255 }
 
 #define COLOUR_BACKGROUND   { 4, 4, 4, 255 }
 #define COLOUR_FOREGROUND   { 170, 170, 170, 255 }
@@ -77,10 +78,12 @@ void depth_decrement(int *__unused) {
 #define GB (1ull << 30)
 
 #define countof(A) (sizeof(A)/sizeof(*A))
-#define VK_ASSERT(expr) assert(expr == VK_SUCCESS);
+#define VK_ASSERT(expr) expect(expr == VK_SUCCESS);
 
 #ifndef FASTMODE
 #define arena_reset(A, B) arena_reset_safe(A, B)
+#define expect(A) do { if(A) {} else { printf("assertion failed %s:%i\n", __FILE__, __LINE__); exit(1); } } while(0)
+#elif
 #endif
 
 #define MAX_EVENTS 128

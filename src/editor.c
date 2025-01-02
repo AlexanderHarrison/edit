@@ -62,23 +62,26 @@ void        editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length);
 
 FileTree    filetree_create(Arena *arena);
 void        filetree_clear(FileTree *ft);
-void        filetree_open_dir(FileTree *ft, U32 dir_index);
-void        filetree_set_directory(FileTree *ft, const char *dirpath);
+void        filetree_dir_open(FileTree *ft, Arena *scratch, Dir *dir);
+void        filetree_dir_close(FileTree *ft, Dir *dir);
+void        filetree_set_directory(FileTree *ft, Arena *scratch, const char *dirpath);
+U8         *filetree_get_full_path(FileTree *ft, Arena *arena, FileTreeRow *row);
+U8         *filetree_get_full_path_dir(FileTree *ft, Arena *arena, Dir *dir);
 
 // returns number of glyphs written
 U64 write_string_terminated(Glyph *glyphs, U8 *str, FontAtlas *font_atlas, RGBA8 colour, F32 x, F32 y, F32 max_width);
 
 // EDITOR ####################################################################
 
-Editor editor_create(Arena *arena, const char *working_dir, const char *filepath) { TRACE
+Editor editor_create(W *w, Arena *arena, const char *working_dir, const char *filepath) { TRACE
     Glyph *glyphs = ARENA_ALLOC_ARRAY(arena, *glyphs, MAX_GLYPHS);
 
     FileTree filetree = filetree_create(arena);
     if (working_dir == NULL) {
         char buf[512];
-        filetree_set_directory(&filetree, getcwd(buf, sizeof(buf)));
+        filetree_set_directory(&filetree, &w->frame_arena, getcwd(buf, sizeof(buf)));
     } else {
-        filetree_set_directory(&filetree, working_dir);
+        filetree_set_directory(&filetree, &w->frame_arena, working_dir);
     }
 
     Editor ed = {
@@ -90,9 +93,7 @@ Editor editor_create(Arena *arena, const char *working_dir, const char *filepath
         .copied_text = arena_alloc(arena, COPY_MAX_LENGTH, 16),
     };
 
-    assert(editor_load_filepath(&ed, filepath) == 0);
-
-    ed.selection_b = editor_group(&ed, Group_Line, 0).end;
+    expect(editor_load_filepath(&ed, filepath) == 0);
 
     return ed;
 }
@@ -173,8 +174,8 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
             if (ctrl && is(pressed, key_mask(GLFW_KEY_S))) {
                 if (ed->filepath) {
-                    assert(ed->text_length >= 0);
-                    assert(write_file((char*)ed->filepath, ed->text, (U64)ed->text_length) == 0);
+                    expect(ed->text_length >= 0);
+                    expect(write_file((char*)ed->filepath, ed->text, (U64)ed->text_length) == 0);
                     printf("wrote %li bytes to %s\n", ed->text_length, ed->filepath);
                 }
             }
@@ -272,6 +273,10 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 memcpy(ed->copied_text, &ed->text[copy_start], copy_length);
             }
 
+            if (is(pressed, key_mask(GLFW_KEY_T))) {
+                ed->mode = Mode_FileSelect;
+            }
+
             if (is(pressed, key_mask(GLFW_KEY_P))) {
                 I64 paste_idx;
                 if (shift) {
@@ -309,7 +314,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             for (I64 i = 0; i < w->inputs.char_event_count; ++i) {
                 U32 codepoint = w->inputs.char_events[i].codepoint;
                 // enforce ascii for now
-                assert(codepoint < 128);
+                expect(codepoint < 128);
 
                 U8 codepoint_as_char = (U8)codepoint;
                 editor_text_insert(ed, ed->mode_data.insert_cursor, &codepoint_as_char, 1);
@@ -326,6 +331,50 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 ed->mode_data.insert_cursor -= 1;
                 editor_text_remove(ed, ed->mode_data.insert_cursor, ed->mode_data.insert_cursor+1);
             }
+
+            break;
+        }
+        case Mode_FileSelect: {
+            U64 special_pressed = w->inputs.key_special_pressed;
+            U64 pressed = w->inputs.key_pressed;
+            U64 repeating = w->inputs.key_repeating;
+
+            if (is(pressed | repeating, key_mask(GLFW_KEY_J))) {
+                ed->file_select_row++;
+            }
+
+            if (is(pressed | repeating, key_mask(GLFW_KEY_K))) {
+                if (ed->file_select_row > 0)
+                    ed->file_select_row--;
+                else
+                    ed->file_select_row = 0;
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_T))) {
+                ed->mode = Mode_Normal;
+            }
+
+            if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) {
+                if (ed->file_select_row > 0) {
+                    // skip the first (root dir) row
+                    I64 row_idx = ed->file_select_row - 1;
+                    FileTreeRow *row = &ed->filetree.rows[row_idx];
+
+                    if (row->entry_type == EntryType_Dir) {
+                        if (row->dir->flags & DirFlag_Open) {
+                            filetree_dir_close(&ed->filetree, row->dir);
+                        } else {
+                            filetree_dir_open(&ed->filetree, &w->frame_arena, row->dir);
+                        }
+                    } else if (row->entry_type == EntryType_File) {
+                        U8 *filepath = filetree_get_full_path(&ed->filetree, &w->frame_arena, row);
+                        editor_load_filepath(ed, (const char *)filepath);
+                        ed->mode = Mode_Normal;
+                    }
+                }
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_Q))) w->should_close = true;
 
             break;
         }
@@ -366,6 +415,10 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             selection_bar_colour = selection_colours[ed->selection_group];
         } else if (ed->mode == Mode_Insert) {
             selection_bar_colour = (RGBA8)COLOUR_FOREGROUND;
+        } else if (ed->mode == Mode_FileSelect) {
+            selection_bar_colour = (RGBA8)COLOUR_PURPLE;
+        } else {
+            expect(0);
         }
 
         ed->glyphs[glyph_count++] = (Glyph) {
@@ -397,6 +450,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             line_i += 1.f;
             if (line.end >= b) break;
             else a = line.end;
+            break;
         }
     } else if (ed->mode == Mode_Insert) {
         I64 cursor = ed->mode_data.insert_cursor;
@@ -407,6 +461,14 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             .y = rect.y,
             .glyph_idx = special_glyph_rect((U32)rect.w, (U32)rect.h),
             .colour = COLOUR_FOREGROUND,
+        };
+    } else if (ed->mode == Mode_FileSelect) {
+        F32 descent = font_atlas->descent[CODE_FONT_SIZE];
+        ed->glyphs[glyph_count++] = (Glyph) {
+            .x = filetree_v.x,
+            .y = filetree_v.y + (F32)ed->file_select_row * CODE_LINE_SPACING - descent,
+            .glyph_idx = special_glyph_rect((U32)filetree_v.w, (U32)CODE_LINE_SPACING),
+            .colour = COLOUR_SELECT,
         };
     }
 
@@ -513,68 +575,53 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
     }
 
     // WRITE FILETREE GLYPHS ----------------------------------------------------
-    ArenaResetPoint reset_point = arena_reset_point(ed->arena);
+    
     {
         FileTree *ft = &ed->filetree;
+        F32 y = filetree_v.y + CODE_LINE_SPACING;
 
+        // write root dir
         Dir *root_dir = &ft->dir_tree[0];
         glyph_count += write_string_terminated(
             &ed->glyphs[glyph_count],
             ft->name_buffer + root_dir->name_offset,
             font_atlas,
             (RGBA8) COLOUR_RED,
-            filetree_v.x, filetree_v.y + CODE_LINE_SPACING, filetree_v.w
+            filetree_v.x, y, filetree_v.w
         );
+        y += CODE_LINE_SPACING;
 
-        typedef struct DirInWriting {
-            Dir *dir;
-            U16 child;
-        } DirInWriting;
+        // write entry rows
+        for (I64 row_i = 0; row_i < ft->row_count; ++row_i) {
+            FileTreeRow *row = &ft->rows[row_i];
+            
+            F32 x = filetree_v.x + (F32)row->depth * FILETREE_INDENTATION_WIDTH;
 
-        DirInWriting *dirs_writing = ARENA_ALLOC_ARRAY(ed->arena, *dirs_writing, 4096);
-        dirs_writing[0] = (DirInWriting) { root_dir, 0 };
-
-        I64 depth = 0;
-        F32 y = filetree_v.y + CODE_LINE_SPACING * 2;
-        while (depth >= 0) {
-            F32 x = FILETREE_INDENTATION_WIDTH * (F32)depth + filetree_v.x;
-            DirInWriting *in_writing = &dirs_writing[depth];
-            Dir *d = in_writing->dir;
-
-            if (in_writing->child == d->child_count) {
-                U8 *file_name = ft->name_buffer + d->file_names_offset;
-                for (U16 file_i = 0; file_i < d->file_count; ++file_i) {
-                    glyph_count += write_string_terminated(
-                        &ed->glyphs[glyph_count],
-                        file_name,
-                        font_atlas,
-                        (RGBA8) COLOUR_FOREGROUND,
-                        x, y, filetree_v.w - x
-                    );
-                    y += CODE_LINE_SPACING;
-                    file_name += strlen((char*)file_name) + 1;
-                }
-
-                depth--;
-                continue;
+            if (row->entry_type == EntryType_Dir) {
+                Dir *dir = row->dir;
+                U8 *dirname = ft->name_buffer + dir->name_offset;
+                glyph_count += write_string_terminated(
+                    &ed->glyphs[glyph_count],
+                    dirname,
+                    font_atlas,
+                    (RGBA8) {100, 100, 255, 255},
+                    x, y, filetree_v.w - x
+                );
+                y += CODE_LINE_SPACING;
+            } else if (row->entry_type == EntryType_File) {
+                glyph_count += write_string_terminated(
+                    &ed->glyphs[glyph_count],
+                    row->filename,
+                    font_atlas,
+                    (RGBA8) COLOUR_FOREGROUND,
+                    x, y, filetree_v.w - x
+                );
+                y += CODE_LINE_SPACING;
+            } else {
+                expect(0);
             }
-
-            Dir *child = &ft->dir_tree[d->child_index + in_writing->child];
-
-            glyph_count += write_string_terminated(
-                &ed->glyphs[glyph_count],
-                ft->name_buffer + child->name_offset,
-                font_atlas,
-                (RGBA8) {100, 100, 255, 255},
-                x, y, filetree_v.w - x
-            );
-            y += CODE_LINE_SPACING;
-            in_writing->child++;
-            depth++;
-            dirs_writing[depth] = (DirInWriting) { child, 0 };
         }
     }
-    arena_reset(ed->arena, &reset_point);
 
     return (GlyphSlice) { ed->glyphs, glyph_count };
 }
@@ -621,6 +668,7 @@ Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *tex
 int editor_load_filepath(Editor *ed, const char *filepath) { TRACE
     if (filepath == NULL) return 0;
 
+    // TODO: this leaks - allocates for each opened file
     U32 filepath_length = (U32)strlen(filepath);
     U8 *arena_filepath = ARENA_ALLOC_ARRAY(ed->arena, U8, filepath_length+1);
     memcpy(arena_filepath, filepath, filepath_length+1);
@@ -629,14 +677,19 @@ int editor_load_filepath(Editor *ed, const char *filepath) { TRACE
 
     if (ed->text == NULL) {
         ed->text = vm_alloc(TEXT_MAX_LENGTH);
-        assert(ed->text != NULL);
+        expect(ed->text != NULL);
     }
 
+    printf("open %s\n", filepath);
     Bytes b = read_file_to(filepath, ed->text, TEXT_MAX_LENGTH);
-    assert(b.ptr != NULL);
+    expect(b.ptr != NULL);
     ed->text_length = (I64)b.len;
     ed->filepath = arena_filepath;
     ed->filepath_length = filepath_length;
+
+    ed->selection_group = Group_Line;
+    ed->selection_a = 0;
+    ed->selection_b = editor_group(ed, Group_Line, 0).end;
 
     return 0;
 }
@@ -750,7 +803,7 @@ Range editor_group(Editor *ed, Group group, I64 byte) { TRACE
         case Group_Character:
             return editor_group_range_char(ed, byte);
         default:
-            assert(0);
+            expect(0);
     }
 }
 
@@ -810,8 +863,8 @@ void editor_text_remove_raw(Editor *ed, I64 start, I64 end) { TRACE
 }
 
 void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
-    assert(length >= 0);
-    assert(ed->text_length + length <= (I64)TEXT_MAX_LENGTH);
+    expect(length >= 0);
+    expect(ed->text_length + length <= (I64)TEXT_MAX_LENGTH);
 
     undo_record(&ed->undo_stack, at, text, length, UndoOp_Insert);
     editor_text_insert_raw(ed, at, text, length);
@@ -907,8 +960,8 @@ void editor_redo(Editor *ed) { TRACE
 UndoElem *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op) { TRACE
     if (text_length == 0) return NULL;
 
-    assert(text_length <= UINT32_MAX);
-    assert(st->undo_stack_head < UNDO_MAX && st->text_stack_head + text_length < (I64)UNDO_TEXT_SIZE);
+    expect(text_length <= UINT32_MAX);
+    expect(st->undo_stack_head < UNDO_MAX && st->text_stack_head + text_length < (I64)UNDO_TEXT_SIZE);
 
     UndoElem *new_elem = &st->undo_stack[st->undo_stack_head++];
     *new_elem = (UndoElem) { at, (U32)text_length, op };
@@ -940,13 +993,50 @@ void undo_clear(UndoStack *st) { TRACE
 
 // FILETREE ####################################################################
 
+static void filetree_remake_rows_inner(FileTree *ft, Dir *parent, U32 depth) {
+    if ((parent->flags & DirFlag_Open) == 0) return;
+
+    for (U16 child_dir_i = 0; child_dir_i < parent->child_count; ++child_dir_i) {
+        Dir *child = &ft->dir_tree[parent->child_index + child_dir_i];
+        ft->rows[ft->row_count++] = (FileTreeRow) {
+            .entry_type = EntryType_Dir,
+            .parent = parent,
+            .dir = child,
+            .depth = depth,
+        };
+
+        filetree_remake_rows_inner(ft, child, depth+1);
+    }
+
+    U8 *filename = ft->name_buffer + parent->file_names_offset;
+    for (U16 file_i = 0; file_i < parent->file_count; ++file_i) {
+        ft->rows[ft->row_count++] = (FileTreeRow) {
+            .entry_type = EntryType_File,
+            .parent = parent,
+            .filename = filename,
+            .depth = depth,
+        };
+
+        filename += strlen((char*)filename) + 1;
+    }
+}
+
+static void filetree_remake_rows(FileTree *ft) { TRACE
+    if (ft->dir_count == 0) return;
+    ft->row_count = 0;
+    Dir *root_dir = &ft->dir_tree[0];
+    filetree_remake_rows_inner(ft, root_dir, 0);
+}
+
 FileTree filetree_create(Arena *arena) { TRACE
     Dir *dir_tree = arena_alloc(arena, FILETREE_MAX_ENTRY_SIZE, page_size());
     U8 *name_buffer = arena_alloc(arena, FILETREE_MAX_TEXT_SIZE, page_size());
+    FileTreeRow *rows = arena_alloc(arena, FILETREE_MAX_ROW_SIZE, page_size());
 
     return (FileTree) {
         .name_buffer = name_buffer,
         .dir_tree = dir_tree,
+        .rows = rows,
     };
 }
 
@@ -960,6 +1050,7 @@ static U32 filetree_push_name(FileTree *ft, const char *name) { TRACE
 void filetree_clear(FileTree *ft) { TRACE
     ft->text_buffer_head = 0;
     ft->dir_count = 0;
+    ft->row_count = 0;
 }
 
 static int filter_dir(const struct dirent *entry) {
@@ -971,9 +1062,8 @@ static int filter_file(const struct dirent *entry) {
 }
 //static int filter_file_hidden(const struct dirent *entry) { return entry->d_type == DT_REG; }
 
-static void filetree_load_dir(FileTree *ft, U32 dir_index) { TRACE
-    Dir *dir_entry = &ft->dir_tree[dir_index];
-    U8 *dirpath = ft->name_buffer + dir_entry->name_offset;
+static void filetree_load_dir(FileTree *ft, Arena *scratch, Dir *dir_entry) { TRACE
+    U8 *dirpath = filetree_get_full_path_dir(ft, scratch, dir_entry);
 
     //DIR *dir = opendir((char*)dirpath);
     //if (dir == NULL) return;
@@ -982,13 +1072,14 @@ static void filetree_load_dir(FileTree *ft, U32 dir_index) { TRACE
 
     {// iter child directories
         int dirnum = scandir((char*)dirpath, &sorted_entries, filter_dir, alphasort);
-        assert(dirnum >= 0);
+        expect(dirnum >= 0);
         U16 child_index = (U16)ft->dir_count;
 
         for (int dir = 0; dir < dirnum; ++dir) {
             U32 name_offset = filetree_push_name(ft, sorted_entries[dir]->d_name);
             //free(sorted_entries[dir]->d_name);
             ft->dir_tree[ft->dir_count++] = (Dir) {
+                .parent = dir_entry,
                 .name_offset = name_offset,
             };
         }
@@ -1001,7 +1092,7 @@ static void filetree_load_dir(FileTree *ft, U32 dir_index) { TRACE
 
     {// iter child files
         int filenum = scandir((char*)dirpath, &sorted_entries, filter_file, alphasort);
-        assert(filenum >= 0);
+        expect(filenum >= 0);
         dir_entry->file_names_offset = ft->text_buffer_head;
 
         for (int file = 0; file < filenum; ++file) {
@@ -1017,14 +1108,49 @@ static void filetree_load_dir(FileTree *ft, U32 dir_index) { TRACE
     dir_entry->flags |= DirFlag_Loaded;
 }
 
-void filetree_open_dir(FileTree *ft, U32 dir_index) { TRACE
-    Dir *dir = &ft->dir_tree[dir_index];
+void filetree_dir_open(FileTree *ft, Arena *scratch, Dir *dir) { TRACE
     if ((dir->flags & DirFlag_Loaded) == 0)
-        filetree_load_dir(ft, dir_index);
+        filetree_load_dir(ft, scratch, dir);
     dir->flags |= DirFlag_Open;
+
+    filetree_remake_rows(ft);
 }
 
-void filetree_set_directory(FileTree *ft, const char *dirpath) { TRACE
+void filetree_dir_close(FileTree *ft, Dir *dir) { TRACE
+    dir->flags &= (U16)(~DirFlag_Open);
+    filetree_remake_rows(ft);
+}
+
+static void filetree_get_full_path_inner(FileTree *ft, Arena *arena, Dir *dir) {
+    if (dir->parent) {
+        filetree_get_full_path_dir(ft, arena, dir->parent);
+        *(arena->head-1) = '/'; // replace null with separator
+    }
+    arena_copy_string_terminated(arena, ft->name_buffer + dir->name_offset);
+}
+
+U8 *filetree_get_full_path_dir(FileTree *ft, Arena *arena, Dir *dir) { TRACE
+    U8 *full_path = arena->head;
+    filetree_get_full_path_inner(ft, arena, dir);
+    return full_path;
+}
+
+U8 *filetree_get_full_path(FileTree *ft, Arena *arena, FileTreeRow *row) { TRACE
+    if (ft->dir_count == 0) return NULL;
+    U8 *full_path = arena->head;
+
+    if (row->entry_type == EntryType_Dir) {
+        filetree_get_full_path_dir(ft, arena, row->dir);
+    } else {
+        filetree_get_full_path_dir(ft, arena, row->parent);
+        *(arena->head-1) = '/'; // replace null with separator
+        arena_copy_string_terminated(arena, row->filename);
+    }
+
+    return full_path;
+}
+
+void filetree_set_directory(FileTree *ft, Arena *scratch, const char *dirpath) { TRACE
     filetree_clear(ft);
 
     DIR *dir = opendir(dirpath);
@@ -1033,11 +1159,11 @@ void filetree_set_directory(FileTree *ft, const char *dirpath) { TRACE
     U32 name_offset = filetree_push_name(ft, dirpath);
     ft->dir_count = 1;
     ft->dir_tree[0] = (Dir) {
+        .parent = NULL,
         .name_offset = name_offset,
     };
     closedir(dir);
-    filetree_open_dir(ft, 0);
-
+    filetree_dir_open(ft, scratch, &ft->dir_tree[0]);
 
     Dir *d = &ft->dir_tree[0];
     U8 *f = ft->name_buffer + d->file_names_offset;

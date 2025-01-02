@@ -79,7 +79,7 @@ W window_create(Arena *arena) { TRACE
                 break;
             }
         }
-        assert(validation_found);
+        expect(validation_found);
         arena_reset(arena, &reset);
     }
 
@@ -124,7 +124,7 @@ W window_create(Arena *arena) { TRACE
         ArenaResetPoint reset = arena_reset_point(arena);
         U32 device_count;
         VK_ASSERT(vkEnumeratePhysicalDevices(instance, &device_count, NULL));
-        assert(device_count != 0);
+        expect(device_count != 0);
         VkPhysicalDevice *devices = ARENA_ALLOC_ARRAY(arena, *devices, device_count);
         VK_ASSERT(vkEnumeratePhysicalDevices(instance, &device_count, devices));
 
@@ -156,7 +156,7 @@ W window_create(Arena *arena) { TRACE
             }
         }
 
-        assert(found_dev);
+        expect(found_dev);
         arena_reset(arena, &reset);
     }
 
@@ -170,7 +170,7 @@ W window_create(Arena *arena) { TRACE
         ArenaResetPoint reset = arena_reset_point(arena);
         U32 family_count;
         vkGetPhysicalDeviceQueueFamilyProperties(phy_device, &family_count, NULL);
-        assert(family_count != 0);
+        expect(family_count != 0);
         VkQueueFamilyProperties *families = ARENA_ALLOC_ARRAY(arena, VkQueueFamilyProperties, family_count);
         vkGetPhysicalDeviceQueueFamilyProperties(phy_device, &family_count, families);
 
@@ -189,7 +189,7 @@ W window_create(Arena *arena) { TRACE
             break;
         }
 
-        assert(family_found);
+        expect(family_found);
         arena_reset(arena, &reset);
     }
 
@@ -231,10 +231,10 @@ W window_create(Arena *arena) { TRACE
         ArenaResetPoint reset = arena_reset_point(arena);
         VK_ASSERT(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phy_device, surface, &surface_cap));
 
-        // assert present mode 
+        // expect present mode 
         U32 present_mode_count;
         VK_ASSERT(vkGetPhysicalDeviceSurfacePresentModesKHR(phy_device, surface, &present_mode_count, NULL));
-        assert(present_mode_count != 0);
+        expect(present_mode_count != 0);
         VkPresentModeKHR *present_modes = ARENA_ALLOC_ARRAY(arena, VkPresentModeKHR, present_mode_count);
         VK_ASSERT(vkGetPhysicalDeviceSurfacePresentModesKHR(phy_device, surface, &present_mode_count, present_modes));
         bool mode_found = false;
@@ -244,9 +244,9 @@ W window_create(Arena *arena) { TRACE
                 break;
             }
         }
-        assert(mode_found);
+        expect(mode_found);
 
-        // assert format
+        // expect format
         U32 format_count;
         VK_ASSERT(vkGetPhysicalDeviceSurfaceFormatsKHR(phy_device, surface, &format_count, NULL));
         VkSurfaceFormatKHR *formats = ARENA_ALLOC_ARRAY(arena, VkSurfaceFormatKHR, format_count);
@@ -258,7 +258,7 @@ W window_create(Arena *arena) { TRACE
                 break;
             }
         }
-        assert(format_found);
+        expect(format_found);
         arena_reset(arena, &reset);
     }
 
@@ -410,8 +410,8 @@ W window_create(Arena *arena) { TRACE
     Bytes vert_source = read_file_in("build/main_vert.spv", arena);
     Bytes frag_source = read_file_in("build/main_frag.spv", arena);
 
-    assert(vert_source.ptr != NULL);
-    assert(frag_source.ptr != NULL);
+    expect(vert_source.ptr != NULL);
+    expect(frag_source.ptr != NULL);
 
     VkShaderModule vert_module, frag_module;
     SCOPE_TRACE {
@@ -718,7 +718,7 @@ static VkResult gpu_alloc(
         }
     }
 
-    assert(found_mem);
+    expect(found_mem);
 
     VkMemoryAllocateInfo alloc_info = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -761,7 +761,7 @@ VkResult gpu_alloc_image(
 U8 *staging_buffer_alloc(StagingBuffer *staging_buffer, U64 size, U64 alignment) {
     U8 *alloc_start = ALIGN_UP(staging_buffer->staging_head, alignment);
     U8 *alloc_end = alloc_start + size;
-    assert(alloc_end - staging_buffer->mapped_ptr <= (I64)STAGING_BUFFER_SIZE);
+    expect(alloc_end - staging_buffer->mapped_ptr <= (I64)STAGING_BUFFER_SIZE);
     staging_buffer->staging_head = alloc_end;
     return alloc_start;
 }
@@ -929,7 +929,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     const char *file = NULL;
     if (argc > 1) file = argv[1];
-    Editor editor = editor_create(&static_arena, NULL, file);
+    Editor editor = editor_create(&w, &static_arena, NULL, file);
 
     // glyph draw buffer ------------------------------------------------
 
@@ -1081,7 +1081,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
                     continue;
                 } else {
-                    assert(false);
+                    expect(false);
                 }
             }
 
@@ -1266,7 +1266,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
             );
 
             if (glyphs.count) {
-                assert(glyphs.count < MAX_GLYPHS);
+                expect(glyphs.count < MAX_GLYPHS);
                 vkCmdDraw(w.cmd_buffer, 4, (U32)glyphs.count, 0, 0);
             }
         }
@@ -1305,7 +1305,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 .pImageIndices = &sc_image_idx,
             };
             VkResult res = vkQueuePresentKHR(w.queue, &present_info);
-            assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
+            expect(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
         }
 
         // RESET STATE -----------------------------------------------------------
@@ -1403,7 +1403,7 @@ Swapchain *swapchain_create(
 
     U32 image_count = surface_cap.minImageCount + 1;
     if (surface_cap.maxImageCount != 0)
-        assert(image_count <= surface_cap.maxImageCount);
+        expect(image_count <= surface_cap.maxImageCount);
 
     // swapchain creation
     VkSwapchainCreateInfoKHR sc_info = {
