@@ -12,6 +12,9 @@
 // C-J - contract selection downwards (buggy)
 // C-K - expand selection upwards
 //
+// Tab - Toggle paragraph granularity
+//   r - Toggle subword granularity
+//
 // EDIT MODE -----------------------------------------------------------
 //   c - delete selection and enter edit mode
 //
@@ -112,6 +115,7 @@ void editor_group_expand(Editor *ed) { TRACE
        Group_Paragraph, // Group_Paragraph
        Group_Line,      // Group_Line
        Group_Line,      // Group_Word
+       Group_Word,      // Group_SubWord
        Group_Word,      // Group_Character
     };
     ed->selection_group = lut[ed->selection_group];
@@ -122,6 +126,7 @@ void editor_group_contract(Editor *ed) { TRACE
        Group_Line,      // Group_Paragraph
        Group_Word,      // Group_Line
        Group_Character, // Group_Word
+       Group_Character, // Group_SubWord
        Group_Character, // Group_Character
     };
     ed->selection_group = lut[ed->selection_group];
@@ -144,6 +149,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
     {
         switch (ed->mode) {
         case Mode_Normal: {
+            U64 special_pressed = w->inputs.key_special_pressed;
             U64 pressed = w->inputs.key_pressed;
             U64 repeating = w->inputs.key_repeating;
             U64 modifiers = w->inputs.modifiers;
@@ -160,14 +166,14 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
             if (is(pressed, key_mask(GLFW_KEY_H))) {
                 if (shift)
-                    ed->selection_group = 0;
+                    ed->selection_group = Group_Line;
                 else
                     editor_group_expand(ed);
             }
 
             if (is(pressed, key_mask(GLFW_KEY_L))) {
                 if (shift)
-                    ed->selection_group = Group_Count - 1;
+                    ed->selection_group = Group_Character;
                 else
                     editor_group_contract(ed);
             }
@@ -271,6 +277,27 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
                 ed->copied_text_length = copy_length;
                 memcpy(ed->copied_text, &ed->text[copy_start], copy_length);
+            }
+
+            if (is(special_pressed, special_mask(GLFW_KEY_TAB))) {
+                if (ed->selection_group == Group_Paragraph)
+                    ed->selection_group = Group_Line;
+                else
+                    ed->selection_group = Group_Paragraph;
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_R))) {
+                if (ed->selection_group == Group_SubWord) {
+                    ed->selection_group = Group_Word;
+                    Range range = editor_group(ed, ed->selection_group, ed->selection_a);
+                    ed->selection_a = range.start;
+                    ed->selection_b = range.end;
+                } else {
+                    ed->selection_group = Group_SubWord;
+                    Range range = editor_group(ed, ed->selection_group, ed->selection_a);
+                    ed->selection_a = range.start;
+                    ed->selection_b = range.end;
+                }
             }
 
             if (is(pressed, key_mask(GLFW_KEY_T))) {
@@ -448,9 +475,10 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             Range line = editor_group(ed, Group_Line, a);
 
             line_i += 1.f;
-            if (line.end >= b) break;
-            else a = line.end;
-            break;
+            if (line.end >= b)
+                break;
+            else
+                a = line.end;
         }
     } else if (ed->mode == Mode_Insert) {
         I64 cursor = ed->mode_data.insert_cursor;
@@ -787,6 +815,36 @@ Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
     return (Range) { start, end };
 }
 
+Range editor_group_range_subword(Editor *ed, I64 byte) { TRACE
+    // not much we can do here
+    if (byte < 0) byte = 0;
+    if (byte >= ed->text_length) byte = ed->text_length-1;
+
+    I64 start = byte;
+    while (char_whitespace(editor_text(ed, start)) || editor_text(ed, start) == '_')
+        start--;
+
+    bool (*char_fn)(U8 c);
+    U8 ch = editor_text(ed, start);
+
+    if (char_subword_like(ch)) {
+        char_fn = char_subword_like;
+    } else {
+        char_fn = char_symbolic;
+    }
+
+    while (char_fn(editor_text(ed, start-1)))
+        start--;
+
+    I64 end = byte;
+    while (char_fn(editor_text(ed, end)))
+        end++;
+    while (char_whitespace(editor_text(ed, end)) || editor_text(ed, end) == '_')
+        end++;
+
+    return (Range) { start, end };
+}
+
 Range editor_group_range_char(Editor *ed, I64 byte) { TRACE
     (void)ed;
     return (Range) { byte, byte+1 };
@@ -800,6 +858,8 @@ Range editor_group(Editor *ed, Group group, I64 byte) { TRACE
             return editor_group_range_line(ed, byte);
         case Group_Word:
             return editor_group_range_word(ed, byte);
+        case Group_SubWord:
+            return editor_group_range_subword(ed, byte);
         case Group_Character:
             return editor_group_range_char(ed, byte);
         default:

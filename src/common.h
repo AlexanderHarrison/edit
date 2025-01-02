@@ -62,7 +62,7 @@ void depth_decrement(int *__unused) {
 #define COLOUR_ORANGE   { 160, 100,  20, 255 }
 #define COLOUR_GREEN    { 100, 160, 100, 255 }
 #define COLOUR_BLUE     { 100, 100, 230, 255 }
-#define COLOUR_PURPLE   { 140, 20, 100, 255 }
+#define COLOUR_PURPLE   { 150, 50, 110, 255 }
 
 #define COLOUR_BACKGROUND   { 4, 4, 4, 255 }
 #define COLOUR_FOREGROUND   { 170, 170, 170, 255 }

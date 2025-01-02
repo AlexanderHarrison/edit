@@ -76,6 +76,9 @@ typedef enum Group {
     // separated by differing character types (symbol, alphanumeric, etc.)
     Group_Word,
 
+    // separated by differing character types or underscores
+    Group_SubWord,
+
     // separated by character
     Group_Character,
 
@@ -83,11 +86,12 @@ typedef enum Group {
 } Group;
 
 static const RGBA8 selection_colours[Group_Count] = {
-    {255, 0, 0, 255},
-    {255, 100, 0, 255},
-    {255, 255, 0, 255},
-    {0, 255, 0, 255},
-};
+    {255, 0, 0, 255},       // Group_Paragraph
+    {255, 100, 0, 255},     // Group_Line
+    {255, 255, 0, 255},     // Group_Word
+    {100, 100, 255, 255},   // Group_SubWord
+    {0, 255, 0, 255},       // Group_Character
+};                      
 
 typedef enum Mode {
     Mode_Normal,
@@ -166,6 +170,13 @@ static inline bool char_word_like(U8 c) {
     return caps | lower | num | other;
 }
 
+static inline bool char_subword_like(U8 c) {
+    bool caps = ('A' <= c) & (c <= 'Z');
+    bool lower = ('a' <= c) & (c <= 'z');
+    bool num = ('0' <= c) & (c <= '9');
+    return caps | lower | num;
+}
+
 static inline bool char_whitespace(U8 c) {
     return c == ' ' || c == '\t' || c == '\n';
 }
@@ -173,5 +184,7 @@ static inline bool char_whitespace(U8 c) {
 static inline bool char_symbolic(U8 c) {
     return !char_whitespace(c) && !char_word_like(c);
 }
+
+static inline bool char_underscore(U8 c) { return c == '_'; }
 
 #endif
