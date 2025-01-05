@@ -618,8 +618,8 @@ W window_create(Arena *arena) { TRACE
     vkDestroyShaderModule(device, frag_module, NULL);
 
     Inputs inputs = {
-        .char_events = ARENA_ALLOC_ARRAY(arena, CharEvent, MAX_EVENTS),
-        .key_events = ARENA_ALLOC_ARRAY(arena, KeyEvent, MAX_EVENTS),
+        .char_events = ARENA_ALLOC_ARRAY(arena, CharEvent, EVENTS_MAX),
+        .key_events = ARENA_ALLOC_ARRAY(arena, KeyEvent, EVENTS_MAX),
     };
 
     // CREATE W -------------------------------------------------------------------------------
@@ -929,7 +929,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     const char *file = NULL;
     if (argc > 1) file = argv[1];
-    Editor editor = editor_create(&w, &static_arena, NULL, file);
+    Editor editor = editor_create(&w, &static_arena, NULL, (const U8*)file);
 
     // glyph draw buffer ------------------------------------------------
 
@@ -1334,7 +1334,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
 void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mods) { TRACE
     W *w = glfwGetWindowUserPointer(window);
-    if (w->inputs.key_event_count == MAX_EVENTS) return;
+    if (w->inputs.key_event_count == EVENTS_MAX) return;
 
     U64 kmask = key_mask(key);
     U32 mmask = mod_mask(key);
@@ -1357,7 +1357,7 @@ void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mo
 
 void glfw_callback_char(GLFWwindow *window, unsigned int codepoint) { TRACE
     W *w = glfwGetWindowUserPointer(window);
-    if (w->inputs.char_event_count == MAX_EVENTS) return;
+    if (w->inputs.char_event_count == EVENTS_MAX) return;
     w->inputs.char_events[w->inputs.char_event_count++] = (CharEvent) { codepoint };
 }
 

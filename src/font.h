@@ -3,22 +3,6 @@
 
 #include "common.h"
 
-typedef enum FontSize {
-    FontSize_9, FontSize_13, FontSize_17,
-    //FontSize_20, FontSize_24, FontSize_28, FontSize_32,
-    //FontSize_40, FontSize_48, FontSize_56, FontSize_64,
-    //FontSize_96, FontSize_128,
-
-    FontSize_Count,
-} FontSize;
-
-static const F32 font_size_px[FontSize_Count] = {
-    9.f, 13.f, 17.f,
-    //20.f, 24.f, 28.f, 32.f,
-    //40.f, 48.f, 56.f, 64.f,
-    //96.f, 128.f
-};
-
 typedef struct Glyph {
     F32 x, y;
     U32 glyph_idx;

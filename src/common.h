@@ -7,6 +7,70 @@
 #include <math.h>
 #include <tools.h>
 
+typedef enum FontSize {
+    FontSize_9, FontSize_13, FontSize_21,
+    FontSize_Count,
+} FontSize;
+
+static const F32 font_size_px[FontSize_Count] = {
+    9.f, 13.f, 21.f,
+};
+
+// Config -----------------------------
+
+#define CODE_FONT_SIZE FontSize_13
+#define MODE_FONT_SIZE FontSize_21
+#define CODE_LINE_SPACING 17.f
+#define CODE_SCROLL_SPEED_SLOW 0.2f
+#define CODE_SCROLL_SPEED_FAST 0.6f
+#define ANIM_EXP_FACTOR 1.0f
+
+#define SELECTION_GROUP_BAR_WIDTH 2.f
+#define FILETREE_WIDTH 200.f
+#define FILETREE_INDENTATION_WIDTH 10.f
+#define MODE_INFO_HEIGHT 26.f
+#define MODE_INFO_Y_OFFSET 60.f
+#define MODE_INFO_PADDING 5.f
+
+#define COLOUR_RED      { 230, 100, 100, 255 }
+#define COLOUR_ORANGE   { 160, 100,  20, 255 }
+#define COLOUR_GREEN    { 100, 160, 100, 255 }
+#define COLOUR_BLUE     { 100, 100, 230, 255 }
+#define COLOUR_PURPLE   { 150, 50, 110, 255 }
+
+#define COLOUR_BACKGROUND   { 4, 4, 4, 255 }
+#define COLOUR_FOREGROUND   { 170, 170, 170, 255 }
+#define COLOUR_MODE_INFO    { 10, 10, 10, 255 }
+#define COLOUR_SELECT       { 40, 40, 40, 255 }
+#define COLOUR_SEARCH       { 80, 50, 10, 255 }
+#define COLOUR_SEARCH_SHOWN { 80, 10, 80, 255 }
+#define COLOUR_DIRECTORY    {100, 100, 255, 255}
+#define COLOUR_COMMENT      COLOUR_RED
+#define COLOUR_STRING       COLOUR_GREEN
+
+
+// Limits -----------------------------
+
+#define MODE_INPUT_TEXT_MAX 512
+#define MODE_TEXT_MAX_LENGTH 8096
+#define COPY_MAX_LENGTH 8096
+#define TEXT_MAX_LENGTH (1ull << 28)
+
+#define UNDO_STACK_SIZE (64ul*MB)
+#define UNDO_TEXT_SIZE (64ul*MB)
+#define UNDO_MAX (UNDO_STACK_SIZE / sizeof(UndoElem))
+
+#define EVENTS_MAX 128
+
+#define FILETREE_MAX_ENTRY_SIZE (64ul*MB)
+#define FILETREE_MAX_TEXT_SIZE (64ul*MB)
+#define FILETREE_MAX_ROW_SIZE (64ul*MB)
+#define FILETREE_MAX_ENTRY_COUNT (FILETREE_MAX_ENTRY_SIZE / sizeof(Entry))
+#define FILETREE_MAX_ROW_COUNT (FILETREE_MAX_ROW_SIZE / sizeof(FileTreeRow))
+
+#define MAX_GLYPHS 8192
+#define MAX_GLYPHS_SIZE (MAX_GLYPHS*sizeof(Glyph))
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -48,31 +112,6 @@ void depth_decrement(int *__unused) {
 #define SCOPE_TRACE
 #endif
 
-#define CODE_FONT_SIZE FontSize_13
-#define CODE_LINE_SPACING 17.f
-#define CODE_SCROLL_SPEED_SLOW 0.2f
-#define CODE_SCROLL_SPEED_FAST 0.6f
-#define ANIM_EXP_FACTOR 1.0f
-
-#define SELECTION_GROUP_BAR_WIDTH 2.f
-#define FILETREE_WIDTH 200.f
-#define FILETREE_INDENTATION_WIDTH 10.f
-
-#define COLOUR_RED      { 230, 100, 100, 255 }
-#define COLOUR_ORANGE   { 160, 100,  20, 255 }
-#define COLOUR_GREEN    { 100, 160, 100, 255 }
-#define COLOUR_BLUE     { 100, 100, 230, 255 }
-#define COLOUR_PURPLE   { 150, 50, 110, 255 }
-
-#define COLOUR_BACKGROUND   { 4, 4, 4, 255 }
-#define COLOUR_FOREGROUND   { 170, 170, 170, 255 }
-#define COLOUR_SELECT       { 40, 40, 40, 255 }
-#define COLOUR_COMMENT      COLOUR_RED
-#define COLOUR_STRING       COLOUR_GREEN
-
-#define MAX_GLYPHS 8192
-#define MAX_GLYPHS_SIZE (MAX_GLYPHS*sizeof(Glyph))
-
 #define KB (1ull << 10)
 #define MB (1ull << 20)
 #define GB (1ull << 30)
@@ -85,8 +124,6 @@ void depth_decrement(int *__unused) {
 #define expect(A) do { if(A) {} else { printf("assertion failed %s:%i\n", __FILE__, __LINE__); exit(1); } } while(0)
 #elif
 #endif
-
-#define MAX_EVENTS 128
 
 typedef struct CharEvent {
     U32 codepoint;

@@ -7,20 +7,6 @@
 #include "common.h"
 #include "font.h"
 
-#define MODE_INPUT_TEXT_MAX 512
-#define COPY_MAX_LENGTH 8096
-#define TEXT_MAX_LENGTH (1ull << 28)
-
-#define UNDO_STACK_SIZE (64ul*MB)
-#define UNDO_TEXT_SIZE (64ul*MB)
-#define UNDO_MAX (UNDO_STACK_SIZE / sizeof(UndoElem))
-
-#define FILETREE_MAX_ENTRY_SIZE (64ul*MB)
-#define FILETREE_MAX_TEXT_SIZE (64ul*MB)
-#define FILETREE_MAX_ROW_SIZE (64ul*MB)
-#define FILETREE_MAX_ENTRY_COUNT (FILETREE_MAX_ENTRY_SIZE / sizeof(Entry))
-#define FILETREE_MAX_ROW_COUNT (FILETREE_MAX_ROW_SIZE / sizeof(FileTreeRow))
-
 enum DirFlags {
     DirFlag_Open = (1u << 0),
     DirFlag_Loaded = (1u << 1),
@@ -85,18 +71,11 @@ typedef enum Group {
     Group_Count,
 } Group;
 
-static const RGBA8 selection_colours[Group_Count] = {
-    {255, 0, 0, 255},       // Group_Paragraph
-    {255, 100, 0, 255},     // Group_Line
-    {255, 255, 0, 255},     // Group_Word
-    {100, 100, 255, 255},   // Group_SubWord
-    {0, 255, 0, 255},       // Group_Character
-};                      
-
 typedef enum Mode {
     Mode_Normal,
     Mode_Insert,
     Mode_FileSelect,
+    Mode_Search,
 } Mode;
 
 typedef enum UndoOp {
@@ -126,6 +105,7 @@ typedef struct Editor {
     U8 *filepath;
     U32 copied_text_length;
     U32 filepath_length;
+    F32 scroll_y;
 
     Glyph *glyphs; // cache to avoid reallocations
     U8 *text;
@@ -137,9 +117,13 @@ typedef struct Editor {
     Group selection_group;
 
     Mode mode;
-    union {
-        I64 insert_cursor;
-    } mode_data;
+    U8 *mode_text;
+    I64 mode_text_length;
+    I64 insert_cursor;
+    I64 *search_matches;
+    I64 search_match_count;
+    I64 search_cursor;
+
     I64 file_select_row;
 
     // animation values - do not set these directly
@@ -148,7 +132,7 @@ typedef struct Editor {
 
 // if working_dir is NULL, then will get it from getcwd
 Editor
-editor_create(W *w, Arena *arena, const char *working_dir, const char *filepath);
+editor_create(W *w, Arena *arena, const U8 *working_dir, const U8 *filepath);
 
 void
 editor_destroy(Editor *ed);

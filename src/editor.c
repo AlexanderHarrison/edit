@@ -45,7 +45,7 @@ void        undo_destroy(UndoStack *st);
 void        undo_clear(UndoStack *st);
 UndoElem   *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op);
 
-int         editor_load_filepath(Editor *ed, const char *filepath);
+int         editor_load_filepath(Editor *ed, const U8 *filepath);
 void        editor_dealloc_file(Editor *ed);
 Range       editor_group(Editor *ed, Group group, I64 byte);
 Range       editor_group_next(Editor *ed, Group group, I64 current_group_end);
@@ -67,22 +67,30 @@ FileTree    filetree_create(Arena *arena);
 void        filetree_clear(FileTree *ft);
 void        filetree_dir_open(FileTree *ft, Arena *scratch, Dir *dir);
 void        filetree_dir_close(FileTree *ft, Dir *dir);
-void        filetree_set_directory(FileTree *ft, Arena *scratch, const char *dirpath);
+void        filetree_set_directory(FileTree *ft, Arena *scratch, const U8 *dirpath);
 U8         *filetree_get_full_path(FileTree *ft, Arena *arena, FileTreeRow *row);
 U8         *filetree_get_full_path_dir(FileTree *ft, Arena *arena, Dir *dir);
 
+static U64 int_to_string(Arena *arena, I64 n);
+
 // returns number of glyphs written
-U64 write_string_terminated(Glyph *glyphs, U8 *str, FontAtlas *font_atlas, RGBA8 colour, F32 x, F32 y, F32 max_width);
+U64 write_string_terminated(
+    Glyph *glyphs,
+    U8 *str,
+    FontAtlas *font_atlas,
+    RGBA8 colour, U64 font_size,
+    F32 x, F32 y, F32 max_width
+);
 
 // EDITOR ####################################################################
 
-Editor editor_create(W *w, Arena *arena, const char *working_dir, const char *filepath) { TRACE
+Editor editor_create(W *w, Arena *arena, const U8 *working_dir, const U8 *filepath) { TRACE
     Glyph *glyphs = ARENA_ALLOC_ARRAY(arena, *glyphs, MAX_GLYPHS);
 
     FileTree filetree = filetree_create(arena);
     if (working_dir == NULL) {
         char buf[512];
-        filetree_set_directory(&filetree, &w->frame_arena, getcwd(buf, sizeof(buf)));
+        filetree_set_directory(&filetree, &w->frame_arena, (U8*)getcwd(buf, sizeof(buf)));
     } else {
         filetree_set_directory(&filetree, &w->frame_arena, working_dir);
     }
@@ -94,6 +102,7 @@ Editor editor_create(W *w, Arena *arena, const char *working_dir, const char *fi
         .glyphs = glyphs,
         .selection_group = Group_Line,
         .copied_text = arena_alloc(arena, COPY_MAX_LENGTH, 16),
+        .mode_text = arena_alloc(arena, MODE_TEXT_MAX_LENGTH, 16),
     };
 
     expect(editor_load_filepath(&ed, filepath) == 0);
@@ -123,7 +132,7 @@ void editor_group_expand(Editor *ed) { TRACE
 
 void editor_group_contract(Editor *ed) { TRACE
     static const Group lut[Group_Count] = {
-       Group_Line,      // Group_Paragraph
+       Group_Paragraph, // Group_Paragraph
        Group_Word,      // Group_Line
        Group_Character, // Group_Word
        Group_Character, // Group_SubWord
@@ -142,7 +151,14 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
     Rect text_v = selection_bar_v;
     text_v.x += selection_bar_v.w;
-    text_v.w = viewport.w - filetree_v.w - selection_bar_v.w;
+    text_v.w = viewport.w - filetree_v.w;
+
+    Rect mode_info_v = (Rect) {
+        .x = text_v.x,
+        .y = text_v.y + roundf(text_v.h / 2.f) + MODE_INFO_Y_OFFSET,
+        .w = text_v.w,
+        .h = MODE_INFO_HEIGHT,
+    };
 
     // UPDATE ---------------------------------------------------------------
 
@@ -218,7 +234,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 if (shift)
                     editor_selection_trim(ed);
                 ed->mode = Mode_Insert;
-                ed->mode_data.insert_cursor = ed->selection_a;
+                ed->insert_cursor = ed->selection_a;
                 editor_text_remove(ed, ed->selection_a, ed->selection_b);
             }
 
@@ -226,14 +242,14 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 if (shift)
                     editor_selection_trim(ed);
                 ed->mode = Mode_Insert;
-                ed->mode_data.insert_cursor = ed->selection_a;
+                ed->insert_cursor = ed->selection_a;
             }
 
             if (is(pressed, key_mask(GLFW_KEY_A))) {
                 if (shift)
                     editor_selection_trim(ed);
                 ed->mode = Mode_Insert;
-                ed->mode_data.insert_cursor = ed->selection_b;
+                ed->insert_cursor = ed->selection_b;
             }
 
             if (is(pressed, key_mask(GLFW_KEY_M))) {
@@ -285,6 +301,11 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                     ed->selection_group = Group_Paragraph;
             }
 
+            if (is(pressed, key_mask(GLFW_KEY_F))) {
+                ed->selection_a = 0;
+                ed->selection_b = ed->text_length;
+            }
+
             if (is(pressed, key_mask(GLFW_KEY_R))) {
                 if (ed->selection_group == Group_SubWord) {
                     ed->selection_group = Group_Word;
@@ -301,6 +322,11 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
             if (is(pressed, key_mask(GLFW_KEY_T))) {
                 ed->mode = Mode_FileSelect;
+            }
+
+            if (is(pressed, key_mask(GLFW_KEY_SLASH))) {
+                ed->mode = Mode_Search;
+                ed->mode_text_length = 0;
             }
 
             if (is(pressed, key_mask(GLFW_KEY_P))) {
@@ -326,14 +352,19 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             break;
         }
         case Mode_Insert: {
+            U64 pressed = w->inputs.key_pressed;
+            U64 repeating = w->inputs.key_repeating;
             U64 special_pressed = w->inputs.key_special_pressed;
             U64 special_repeating = w->inputs.key_special_repeating;
+            U64 modifiers = w->inputs.modifiers;
+
+            bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
 
             bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
             bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
             if (esc || caps) {
                 ed->mode = Mode_Normal;
-                Range range = editor_group(ed, ed->selection_group, ed->mode_data.insert_cursor);
+                Range range = editor_group(ed, ed->selection_group, ed->insert_cursor);
                 ed->selection_a = range.start;
                 ed->selection_b = range.end;
             }
@@ -344,12 +375,18 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 expect(codepoint < 128);
 
                 U8 codepoint_as_char = (U8)codepoint;
-                editor_text_insert(ed, ed->mode_data.insert_cursor, &codepoint_as_char, 1);
-                ed->mode_data.insert_cursor += 1;
+                editor_text_insert(ed, ed->insert_cursor, &codepoint_as_char, 1);
+                ed->insert_cursor += 1;
+            }
+
+            if (ctrl && is(pressed | repeating, key_mask(GLFW_KEY_W))) {
+                Range word = editor_group(ed, Group_SubWord, ed->insert_cursor);
+                editor_text_remove(ed, word.start, ed->insert_cursor);
+                ed->insert_cursor = word.start;
             }
 
             if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) {
-                Range line = editor_group(ed, Group_Line, ed->mode_data.insert_cursor);
+                Range line = editor_group(ed, Group_Line, ed->insert_cursor);
                 I64 indent = 0;
                 while (editor_text(ed, line.start++) == ' ')
                     indent++;
@@ -359,12 +396,12 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 for (I64 i = 1; i <= indent; ++i)
                     text[i] = ' ';
 
-                editor_text_insert(ed, ed->mode_data.insert_cursor, text, indent+1);
-                ed->mode_data.insert_cursor += indent+1;
+                editor_text_insert(ed, ed->insert_cursor, text, indent+1);
+                ed->insert_cursor += indent+1;
             }
 
             if (is(special_pressed, special_mask(GLFW_KEY_TAB))) {
-                Range line = editor_group(ed, Group_Line, ed->mode_data.insert_cursor);
+                Range line = editor_group(ed, Group_Line, ed->insert_cursor);
                 I64 spaces = 1;
                 while ((line.end+spaces) % 4 != 0)
                     spaces++;
@@ -373,13 +410,13 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 for (I64 i = 0; i < spaces; ++i)
                     text[i] = ' ';
 
-                editor_text_insert(ed, ed->mode_data.insert_cursor, text, spaces);
-                ed->mode_data.insert_cursor += spaces;
+                editor_text_insert(ed, ed->insert_cursor, text, spaces);
+                ed->insert_cursor += spaces;
             }
 
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
-                ed->mode_data.insert_cursor -= 1;
-                editor_text_remove(ed, ed->mode_data.insert_cursor, ed->mode_data.insert_cursor+1);
+                ed->insert_cursor -= 1;
+                editor_text_remove(ed, ed->insert_cursor, ed->insert_cursor+1);
             }
 
             break;
@@ -418,13 +455,89 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                         }
                     } else if (row->entry_type == EntryType_File) {
                         U8 *filepath = filetree_get_full_path(&ed->filetree, &w->frame_arena, row);
-                        editor_load_filepath(ed, (const char *)filepath);
+                        editor_load_filepath(ed, filepath);
                         ed->mode = Mode_Normal;
                     }
                 }
             }
 
             if (is(pressed, key_mask(GLFW_KEY_Q))) w->should_close = true;
+
+            break;
+        }
+        case Mode_Search: {
+            U64 modifiers = w->inputs.modifiers;
+            bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
+
+            U64 special_pressed = w->inputs.key_special_pressed;
+            U64 special_repeating = w->inputs.key_special_repeating;
+            U64 pressed = w->inputs.key_pressed;
+            U64 repeating = w->inputs.key_repeating;
+
+            for (I64 i = 0; i < w->inputs.char_event_count; ++i) {
+                ed->search_cursor = 0;
+
+                U32 codepoint = w->inputs.char_events[i].codepoint;
+                // enforce ascii for now
+                expect(codepoint < 128);
+
+                U8 codepoint_as_char = (U8)codepoint;
+                ed->mode_text[ed->mode_text_length++] = codepoint_as_char;
+            }
+
+            if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
+                if (ed->mode_text_length > 0)
+                    ed->mode_text_length--;
+            }
+
+            ed->search_matches = arena_prealign(&w->frame_arena, alignof(*ed->search_matches));
+            ed->search_match_count = 0;
+            if (ed->mode_text_length > 0) {
+                for (I64 a = ed->selection_a; a < ed->selection_b; ++a) {
+                    bool matches = true;
+                    for (I64 i = 0; i < ed->mode_text_length; ++i) {
+                        U8 search_char = ed->mode_text[i];
+                        U8 text_char = editor_text(ed, a+i);
+                        if (search_char != text_char) {
+                            matches = false; 
+                            break;
+                        }
+                    }
+
+                    if (matches) {
+                        I64 *match_i = ARENA_ALLOC(&w->frame_arena, *match_i);
+                        *match_i = a;
+                        ed->search_match_count++;
+                    }
+                }
+            }
+
+            if (ctrl && is(pressed | repeating, key_mask(GLFW_KEY_J)))
+                ed->search_cursor++;
+
+            if (ctrl && is(pressed | repeating, key_mask(GLFW_KEY_K)))
+                ed->search_cursor--;
+
+            if (ed->search_cursor >= ed->search_match_count)
+                ed->search_cursor = ed->search_match_count - 1;
+
+            if (ed->search_cursor < 0)
+                ed->search_cursor = 0;
+
+            bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
+            bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
+            if (esc || caps) {
+                ed->mode = Mode_Normal;
+            }
+
+            if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) { 
+                if (ed->search_match_count > 0) {
+                    I64 shown_match = ed->search_matches[ed->search_cursor];
+                    ed->selection_a = shown_match;
+                    ed->selection_b = shown_match + ed->mode_text_length;
+                }
+                ed->mode = Mode_Normal;
+            }
 
             break;
         }
@@ -440,15 +553,26 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
     // UPDATE ANIMATIONS ----------------------------------------------------
 
-    {
-        I64 line_a = editor_line_index(ed, ed->selection_a);
-        I64 line_b = editor_line_index(ed, ed->selection_b);
-        F32 scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
+    // find new scroll y
+    { 
+        Mode mode = ed->mode;
+        if (mode == Mode_Normal || mode == Mode_Insert || mode == Mode_FileSelect) {
+            I64 line_a = editor_line_index(ed, ed->selection_a);
+            I64 line_b = editor_line_index(ed, ed->selection_b);
+            ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
+        } else if (mode == Mode_Search) {
+            if (ed->search_match_count > 0) {
+                I64 shown_match = ed->search_matches[ed->search_cursor];
+                I64 line_a = editor_line_index(ed, shown_match);
+                I64 line_b = editor_line_index(ed, shown_match + ed->mode_text_length);
+                ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
+            }
+        }
 
-        // scrolling
-        F32 diff = scroll_y - ed->scroll_y_visual;
+        // animate scrolling
+        F32 diff = ed->scroll_y - ed->scroll_y_visual;
         if (fabs(diff) < 0.05f) 
-            ed->scroll_y_visual = scroll_y;
+            ed->scroll_y_visual = ed->scroll_y;
         else
             ed->scroll_y_visual += diff * ANIM_EXP_FACTOR;
     }
@@ -461,12 +585,22 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
     {
         RGBA8 selection_bar_colour;
 
+        static const RGBA8 selection_colours[Group_Count] = {
+            {255, 0, 0, 255},       // Group_Paragraph      red
+            {255, 100, 0, 255},     // Group_Line           orange
+            {255, 255, 0, 255},     // Group_Word           yellow
+            {100, 100, 255, 255},   // Group_SubWord        green
+            {0, 255, 0, 255},       // Group_Character      blue
+        };                      
+
         if (ed->mode == Mode_Normal) {
             selection_bar_colour = selection_colours[ed->selection_group];
         } else if (ed->mode == Mode_Insert) {
             selection_bar_colour = (RGBA8)COLOUR_FOREGROUND;
         } else if (ed->mode == Mode_FileSelect) {
             selection_bar_colour = (RGBA8)COLOUR_PURPLE;
+        } else if (ed->mode == Mode_Search) {
+            selection_bar_colour = (RGBA8) { 0, 255, 100, 255 };
         } else {
             expect(0);
         }
@@ -503,8 +637,9 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             else
                 a = line.end;
         }
-    } else if (ed->mode == Mode_Insert) {
-        I64 cursor = ed->mode_data.insert_cursor;
+    }
+    if (ed->mode == Mode_Insert) {
+        I64 cursor = ed->insert_cursor;
         Rect rect = editor_line_rect(ed, font_atlas, cursor, cursor, &text_v);
         rect.w = 2.f;
         ed->glyphs[glyph_count++] = (Glyph) {
@@ -513,7 +648,8 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             .glyph_idx = special_glyph_rect((U32)rect.w, (U32)rect.h),
             .colour = COLOUR_FOREGROUND,
         };
-    } else if (ed->mode == Mode_FileSelect) {
+    }
+    if (ed->mode == Mode_FileSelect) {
         F32 descent = font_atlas->descent[CODE_FONT_SIZE];
         ed->glyphs[glyph_count++] = (Glyph) {
             .x = filetree_v.x,
@@ -521,6 +657,23 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             .glyph_idx = special_glyph_rect((U32)filetree_v.w, (U32)CODE_LINE_SPACING),
             .colour = COLOUR_SELECT,
         };
+    }
+    if (ed->mode == Mode_Search) {
+        for (I64 i = 0; i < ed->search_match_count; ++i) {
+            I64 match_idx = ed->search_matches[i];
+            Rect rect = editor_line_rect(ed, font_atlas, match_idx, match_idx + ed->mode_text_length, &text_v);
+            RGBA8 colour = i != ed->search_cursor ? (RGBA8)COLOUR_SEARCH : (RGBA8)COLOUR_SEARCH_SHOWN;
+
+            if (rect.w == 0.f)
+                rect.w = 2.f;
+
+            ed->glyphs[glyph_count++] = (Glyph) {
+                .x = rect.x,
+                .y = rect.y,
+                .glyph_idx = special_glyph_rect((U32)rect.w, (U32)rect.h),
+                .colour = colour,
+            };
+        }
     }
 
     // WRITE TEXT GLYPHS ----------------------------------------------------
@@ -637,7 +790,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             &ed->glyphs[glyph_count],
             ft->name_buffer + root_dir->name_offset,
             font_atlas,
-            (RGBA8) COLOUR_RED,
+            (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
             filetree_v.x, y, filetree_v.w
         );
         y += CODE_LINE_SPACING;
@@ -655,7 +808,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                     &ed->glyphs[glyph_count],
                     dirname,
                     font_atlas,
-                    (RGBA8) {100, 100, 255, 255},
+                    (RGBA8) COLOUR_DIRECTORY, CODE_FONT_SIZE,
                     x, y, filetree_v.w - x
                 );
                 y += CODE_LINE_SPACING;
@@ -664,7 +817,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                     &ed->glyphs[glyph_count],
                     row->filename,
                     font_atlas,
-                    (RGBA8) COLOUR_FOREGROUND,
+                    (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
                     x, y, filetree_v.w - x
                 );
                 y += CODE_LINE_SPACING;
@@ -672,6 +825,52 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 expect(0);
             }
         }
+    }
+
+    // WRITE MODE INFO GLYPHS -------------------------------------------------
+
+    if (ed->mode == Mode_Search) {
+        ed->glyphs[glyph_count++] = (Glyph) {
+            .x = mode_info_v.x,
+            .y = mode_info_v.y,
+            .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
+            .colour = COLOUR_MODE_INFO,
+        };
+        
+        // show selection index/count
+        U8 *mode_info_text = arena_prealign(&w->frame_arena, 1);
+
+        RGBA8 colour;
+        if (ed->search_match_count > 0 && ed->mode_text_length > 0) {
+            colour = (RGBA8) COLOUR_FOREGROUND;
+            int_to_string(&w->frame_arena, ed->search_cursor+1);
+            *(U8*)ARENA_ALLOC(&w->frame_arena, U8) = '/';
+            int_to_string(&w->frame_arena, ed->search_match_count);
+        } else {
+            colour = (RGBA8) COLOUR_RED;
+        }
+
+        do {
+            *(U8*)ARENA_ALLOC(&w->frame_arena, U8) = ' ';
+        } while (w->frame_arena.head - mode_info_text < 6);
+
+        // show selection text
+        U8 *copied_mode_text = ARENA_ALLOC_ARRAY(&w->frame_arena, U8, (U64)ed->mode_text_length);
+        for (I64 i = 0; i < ed->mode_text_length; ++i)
+            copied_mode_text[i] = ed->mode_text[i];
+
+        // null terminator
+        *(U8*)ARENA_ALLOC(&w->frame_arena, U8) = 0;
+
+        F32 y = mode_info_v.y + mode_info_v.h - MODE_INFO_PADDING;
+        F32 x = mode_info_v.x + MODE_INFO_PADDING;
+        glyph_count += write_string_terminated(
+            &ed->glyphs[glyph_count],
+            mode_info_text,
+            font_atlas,
+            colour, MODE_FONT_SIZE,
+            x, y, mode_info_v.w - mode_info_v.x - MODE_INFO_PADDING*2.f
+        );
     }
 
     return (GlyphSlice) { ed->glyphs, glyph_count };
@@ -716,11 +915,42 @@ Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *tex
     return (Rect) { x, y, width, height };
 }
 
-int editor_load_filepath(Editor *ed, const char *filepath) { TRACE
+static const char *read_file_to_buffer_err(I64 f) {
+    if (f == -1) return "File does not exist, or you have insufficient permissions";
+    if (f == -2) return "Could not read file size";
+    if (f == -3) return "File is too large";
+    if (f == -4) return "Could not read file";
+    if (f == -5) return "Could not close file";
+    return "Error message not implemented";
+}
+
+static I64 read_file_to_buffer(U8 *buffer, U64 buffer_size, const U8 *filepath) {
+    FILE *f = fopen((const char*)filepath, "rb");
+    if (f == NULL) return -1;
+    
+    I64 fsize = file_size(f);
+    if (fsize < 0) {
+        fclose(f);
+        return -2;
+    }
+
+    if ((U64)fsize > buffer_size) return -3;
+
+    if (fsize != 0 && fread(buffer, (U64)fsize, 1, f) != 1) {
+        fclose(f);
+        return -4;
+    }
+
+    if (fclose(f) != 0) return -5;
+
+    return fsize;
+}
+
+int editor_load_filepath(Editor *ed, const U8 *filepath) { TRACE
     if (filepath == NULL) return 0;
 
     // TODO: this leaks - allocates for each opened file
-    U32 filepath_length = (U32)strlen(filepath);
+    U32 filepath_length = (U32)strlen((const char*)filepath);
     U8 *arena_filepath = ARENA_ALLOC_ARRAY(ed->arena, U8, filepath_length+1);
     memcpy(arena_filepath, filepath, filepath_length+1);
 
@@ -731,12 +961,19 @@ int editor_load_filepath(Editor *ed, const char *filepath) { TRACE
         expect(ed->text != NULL);
     }
 
-    printf("open %s\n", filepath);
-    Bytes b = read_file_to(filepath, ed->text, TEXT_MAX_LENGTH);
-    expect(b.ptr != NULL);
-    ed->text_length = (I64)b.len;
-    ed->filepath = arena_filepath;
-    ed->filepath_length = filepath_length;
+    I64 size = read_file_to_buffer(ed->text, TEXT_MAX_LENGTH, filepath);
+    if (size >= 0) {
+        ed->text_length = size;
+        ed->filepath = arena_filepath;
+        ed->filepath_length = filepath_length;
+    } else {
+        const char *err = read_file_to_buffer_err(size);
+        fprintf(stderr, "Error reading file: %s\n", err);
+
+        ed->text_length = 0;
+        ed->filepath = NULL;
+        ed->filepath_length = 0;
+    }
 
     ed->selection_group = Group_Line;
     ed->selection_a = 0;
@@ -816,7 +1053,7 @@ Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
     if (byte >= ed->text_length) byte = ed->text_length-1;
 
     I64 start = byte;
-    while (char_whitespace(editor_text(ed, start)))
+    while (start > 0 && char_whitespace(editor_text(ed, start)))
         start--;
 
     bool (*char_fn)(U8 c);
@@ -826,13 +1063,13 @@ Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
         char_fn = char_symbolic;
     }
 
-    while (char_fn(editor_text(ed, start-1)))
+    while (start > 0 && char_fn(editor_text(ed, start-1)))
         start--;
 
     I64 end = byte;
-    while (char_fn(editor_text(ed, end)))
+    while (end < ed->text_length && char_fn(editor_text(ed, end)))
         end++;
-    while (char_whitespace(editor_text(ed, end)))
+    while (end < ed->text_length && char_whitespace(editor_text(ed, end)))
         end++;
 
     return (Range) { start, end };
@@ -844,7 +1081,7 @@ Range editor_group_range_subword(Editor *ed, I64 byte) { TRACE
     if (byte >= ed->text_length) byte = ed->text_length-1;
 
     I64 start = byte;
-    while (char_whitespace(editor_text(ed, start)) || editor_text(ed, start) == '_')
+    while (start > 0 && (char_whitespace(editor_text(ed, start)) || editor_text(ed, start) == '_'))
         start--;
 
     bool (*char_fn)(U8 c);
@@ -856,21 +1093,16 @@ Range editor_group_range_subword(Editor *ed, I64 byte) { TRACE
         char_fn = char_symbolic;
     }
 
-    while (char_fn(editor_text(ed, start-1)))
+    while (start > 0 && char_fn(editor_text(ed, start-1)))
         start--;
 
     I64 end = byte;
-    while (char_fn(editor_text(ed, end)))
+    while (end < ed->text_length && char_fn(editor_text(ed, end)))
         end++;
-    while (char_whitespace(editor_text(ed, end)) || editor_text(ed, end) == '_')
+    while (end < ed->text_length && (char_whitespace(editor_text(ed, end)) || editor_text(ed, end) == '_'))
         end++;
 
     return (Range) { start, end };
-}
-
-Range editor_group_range_char(Editor *ed, I64 byte) { TRACE
-    (void)ed;
-    return (Range) { byte, byte+1 };
 }
 
 Range editor_group(Editor *ed, Group group, I64 byte) { TRACE
@@ -884,7 +1116,7 @@ Range editor_group(Editor *ed, Group group, I64 byte) { TRACE
         case Group_SubWord:
             return editor_group_range_subword(ed, byte);
         case Group_Character:
-            return editor_group_range_char(ed, byte);
+            return (Range) { byte, byte+1 };
         default:
             expect(0);
     }
@@ -899,6 +1131,7 @@ Range editor_group_prev(Editor *ed, Group group, I64 current_group_start) { TRAC
 }
 
 I64 editor_line_index(Editor *ed, I64 byte) { TRACE
+    if (byte < 0) return byte;
     I64 line_i = 0;
     for (I64 i = 0; i < byte; ++i) {
         if (editor_text(ed, i) == '\n')
@@ -1123,9 +1356,9 @@ FileTree filetree_create(Arena *arena) { TRACE
     };
 }
 
-static U32 filetree_push_name(FileTree *ft, const char *name) { TRACE
+static U32 filetree_push_name(FileTree *ft, const U8 *name) { TRACE
     U32 name_offset = ft->text_buffer_head;
-    U8 *null_term = (U8*)stpcpy((char*)ft->name_buffer + name_offset, name);
+    U8 *null_term = (U8*)stpcpy((char*)ft->name_buffer + name_offset, (const char *)name);
     ft->text_buffer_head = (U32)(null_term - ft->name_buffer) + 1;
     return name_offset;
 }
@@ -1159,7 +1392,7 @@ static void filetree_load_dir(FileTree *ft, Arena *scratch, Dir *dir_entry) { TR
         U16 child_index = (U16)ft->dir_count;
 
         for (int dir = 0; dir < dirnum; ++dir) {
-            U32 name_offset = filetree_push_name(ft, sorted_entries[dir]->d_name);
+            U32 name_offset = filetree_push_name(ft, (const U8*)sorted_entries[dir]->d_name);
             //free(sorted_entries[dir]->d_name);
             ft->dir_tree[ft->dir_count++] = (Dir) {
                 .parent = dir_entry,
@@ -1179,7 +1412,7 @@ static void filetree_load_dir(FileTree *ft, Arena *scratch, Dir *dir_entry) { TR
         dir_entry->file_names_offset = ft->text_buffer_head;
 
         for (int file = 0; file < filenum; ++file) {
-            filetree_push_name(ft, sorted_entries[file]->d_name);
+            filetree_push_name(ft, (const U8*)sorted_entries[file]->d_name);
             //free(sorted_entries[file]->d_name);
         }
 
@@ -1233,10 +1466,10 @@ U8 *filetree_get_full_path(FileTree *ft, Arena *arena, FileTreeRow *row) { TRACE
     return full_path;
 }
 
-void filetree_set_directory(FileTree *ft, Arena *scratch, const char *dirpath) { TRACE
+void filetree_set_directory(FileTree *ft, Arena *scratch, const U8 *dirpath) { TRACE
     filetree_clear(ft);
 
-    DIR *dir = opendir(dirpath);
+    DIR *dir = opendir((const char *)dirpath);
     if (dir == NULL) return;
 
     U32 name_offset = filetree_push_name(ft, dirpath);
@@ -1255,12 +1488,37 @@ void filetree_set_directory(FileTree *ft, Arena *scratch, const char *dirpath) {
     }
 }
 
+// returns number of digits
+static U64 int_to_string(Arena *arena, I64 n) {
+    if (n < 0)
+        *(U8*)ARENA_ALLOC(arena, U8) = '-';
+    U64 n_abs = (U64)(n >= 0 ? n : -n);
+
+    // count digits
+    U64 digit_count = 0;
+    U64 m = n_abs;
+    do {
+        m /= 10;
+        digit_count++;
+    } while (m != 0);
+
+    U8 *digits = ARENA_ALLOC_ARRAY(arena, *digits, digit_count);
+
+    for (U64 i = 0; i < digit_count; ++i) {
+        U64 digit = n_abs % 10;
+        n_abs /= 10;
+        digits[digit_count - i - 1] = (U8)digit + '0';
+    }
+
+    return digit_count;
+}
+
 // returns number of glyphs written
 U64 write_string_terminated(
     Glyph *glyphs,
     U8 *str,
     FontAtlas *font_atlas,
-    RGBA8 colour,
+    RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_width
 ) { TRACE
     U64 glyphs_written = 0;
@@ -1268,7 +1526,7 @@ U64 write_string_terminated(
         U8 ch = *str;
         if (ch == 0) break;
 
-        U32 glyph_idx = glyph_lookup_idx(CODE_FONT_SIZE, ch);
+        U32 glyph_idx = glyph_lookup_idx(font_size, ch);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
         if (x + info.advance_width > max_width) break;
