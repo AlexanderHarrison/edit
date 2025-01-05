@@ -82,6 +82,14 @@ U64 write_string_terminated(
     F32 x, F32 y, F32 max_width
 );
 
+U64 write_string(
+    Glyph *glyphs,
+    U8 *str, U64 length,
+    FontAtlas *font_atlas,
+    RGBA8 colour, U64 font_size,
+    F32 x, F32 y, F32 max_width
+);
+
 // EDITOR ####################################################################
 
 Editor editor_create(W *w, Arena *arena, const U8 *working_dir, const U8 *filepath) { TRACE
@@ -122,7 +130,7 @@ static inline bool is(U64 held, U64 mask) {
 void editor_group_expand(Editor *ed) { TRACE
     static const Group lut[Group_Count] = {
        Group_Paragraph, // Group_Paragraph
-       Group_Line,      // Group_Line
+       Group_Paragraph, // Group_Line
        Group_Line,      // Group_Word
        Group_Word,      // Group_SubWord
        Group_Word,      // Group_Character
@@ -132,7 +140,7 @@ void editor_group_expand(Editor *ed) { TRACE
 
 void editor_group_contract(Editor *ed) { TRACE
     static const Group lut[Group_Count] = {
-       Group_Paragraph, // Group_Paragraph
+       Group_Line,      // Group_Paragraph
        Group_Word,      // Group_Line
        Group_Character, // Group_Word
        Group_Character, // Group_SubWord
@@ -142,37 +150,21 @@ void editor_group_contract(Editor *ed) { TRACE
 }
 
 GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport) { TRACE
-    Rect filetree_v = viewport;
-    filetree_v.w = FILETREE_WIDTH;
-
-    Rect selection_bar_v = filetree_v;
-    selection_bar_v.x += filetree_v.w;
-    selection_bar_v.w = SELECTION_GROUP_BAR_WIDTH;
-
-    Rect text_v = selection_bar_v;
-    text_v.x += selection_bar_v.w;
-    text_v.w = viewport.w - filetree_v.w;
-
-    Rect mode_info_v = (Rect) {
-        .x = text_v.x,
-        .y = text_v.y + roundf(text_v.h / 2.f) + MODE_INFO_Y_OFFSET,
-        .w = text_v.w,
-        .h = MODE_INFO_HEIGHT,
-    };
-
     // UPDATE ---------------------------------------------------------------
 
     {
+        U64 special_pressed = w->inputs.key_special_pressed;
+        U64 special_repeating = w->inputs.key_special_repeating;
+        U64 pressed = w->inputs.key_pressed;
+        U64 repeating = w->inputs.key_repeating;
+        U64 modifiers = w->inputs.modifiers;
+
+        bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
+        bool shift = is(modifiers, GLFW_MOD_SHIFT);
+
+
         switch (ed->mode) {
         case Mode_Normal: {
-            U64 special_pressed = w->inputs.key_special_pressed;
-            U64 pressed = w->inputs.key_pressed;
-            U64 repeating = w->inputs.key_repeating;
-            U64 modifiers = w->inputs.modifiers;
-
-            bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
-            bool shift = is(modifiers, GLFW_MOD_SHIFT);
-
             if (!ctrl && !shift && is(pressed | repeating, key_mask(GLFW_KEY_U)))
                 editor_undo(ed);
 
@@ -294,13 +286,6 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
                 memcpy(ed->copied_text, &ed->text[copy_start], copy_length);
             }
 
-            if (is(special_pressed, special_mask(GLFW_KEY_TAB))) {
-                if (ed->selection_group == Group_Paragraph)
-                    ed->selection_group = Group_Line;
-                else
-                    ed->selection_group = Group_Paragraph;
-            }
-
             if (is(pressed, key_mask(GLFW_KEY_F))) {
                 ed->selection_a = 0;
                 ed->selection_b = ed->text_length;
@@ -352,14 +337,6 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             break;
         }
         case Mode_Insert: {
-            U64 pressed = w->inputs.key_pressed;
-            U64 repeating = w->inputs.key_repeating;
-            U64 special_pressed = w->inputs.key_special_pressed;
-            U64 special_repeating = w->inputs.key_special_repeating;
-            U64 modifiers = w->inputs.modifiers;
-
-            bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
-
             bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
             bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
             if (esc || caps) {
@@ -422,10 +399,6 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             break;
         }
         case Mode_FileSelect: {
-            U64 special_pressed = w->inputs.key_special_pressed;
-            U64 pressed = w->inputs.key_pressed;
-            U64 repeating = w->inputs.key_repeating;
-
             if (is(pressed | repeating, key_mask(GLFW_KEY_J))) {
                 ed->file_select_row++;
             }
@@ -466,14 +439,6 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             break;
         }
         case Mode_Search: {
-            U64 modifiers = w->inputs.modifiers;
-            bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
-
-            U64 special_pressed = w->inputs.key_special_pressed;
-            U64 special_repeating = w->inputs.key_special_repeating;
-            U64 pressed = w->inputs.key_pressed;
-            U64 repeating = w->inputs.key_repeating;
-
             for (I64 i = 0; i < w->inputs.char_event_count; ++i) {
                 ed->search_cursor = 0;
 
@@ -541,6 +506,9 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
             break;
         }
+        //case (Mode_QuickSearch) {
+        //    break;
+        //}
         }
     }
 
@@ -577,9 +545,22 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             ed->scroll_y_visual += diff * ANIM_EXP_FACTOR;
     }
 
-    // WRITE SPECIAL GLYPHS -------------------------------------------------
+    // START RENDER ----------------------------------------------------------
+
+    Rect filetree_v = viewport;
+    filetree_v.w = FILETREE_WIDTH;
+
+    Rect selection_bar_v = filetree_v;
+    selection_bar_v.x += filetree_v.w;
+    selection_bar_v.w = SELECTION_GROUP_BAR_WIDTH;
+
+    Rect text_v = selection_bar_v;
+    text_v.x += selection_bar_v.w;
+    text_v.w = viewport.w - filetree_v.w;
 
     U64 glyph_count = 0;
+
+    // WRITE SPECIAL GLYPHS -------------------------------------------------
 
     // selection group bar
     {
@@ -680,7 +661,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
     I64 text_length = ed->text_length;
     F32 line = 0.f;
-    F32 pen_x = text_v.x;
+    F32 pen_x = 0.f;
 
     enum StateFlags {
         State_Normal,
@@ -703,7 +684,8 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
     };
 
     U64 state = State_Normal;
-
+    FontSize font_size = CODE_FONT_SIZE;
+    F32 spacing = CODE_LINE_SPACING;
     for (I64 i = 0; i < text_length; ++i) {
         U8 ch_prev = editor_text(ed, i-1);
         U8 ch = editor_text(ed, i);
@@ -711,8 +693,8 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
         if (ch == '\n') {
             line += 1.f;
-            pen_x = text_v.x;
-
+            pen_x = 0.f;
+            
             if (state == State_LineComment)
                 state = State_Normal;
 
@@ -754,24 +736,20 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
         F32 line_offset_from_scroll = line - ed->scroll_y_visual;
         F32 line_y = line_offset_from_scroll * CODE_LINE_SPACING + text_v.h / 2.f;
 
-        if (line_y + CODE_LINE_SPACING < 0.f) {
-            // skip entire line if before text_v
-            //while (i < text_length && ed->text[i] != '\n') i++;
-            continue;
-        };
+        if (line_y + spacing < 0.f) continue;
         if (line_y > text_v.h) break;
 
         // if is in text_v ----
 
         if (glyph_count == MAX_GLYPHS) break;
-        F32 pen_y = text_v.y + line_y + CODE_LINE_SPACING;
+        F32 pen_y = text_v.y + line_y + spacing;
 
-        U32 glyph_idx = glyph_lookup_idx(CODE_FONT_SIZE, ch);
+        U32 glyph_idx = glyph_lookup_idx(font_size, ch);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
         ed->glyphs[glyph_count++] = (Glyph) {
-            .x = pen_x + info.offset_x,
-            .y = pen_y + info.offset_y,
+            .x = text_v.x + pen_x + info.offset_x,
+            .y = text_v.y + pen_y + info.offset_y,
             .glyph_idx = glyph_idx,
             .colour = state_colours[state],
         };
@@ -830,6 +808,13 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
     // WRITE MODE INFO GLYPHS -------------------------------------------------
 
     if (ed->mode == Mode_Search) {
+        Rect mode_info_v = (Rect) {
+            .x = text_v.x,
+            .y = text_v.y + roundf(text_v.h / 2.f) + MODE_INFO_Y_OFFSET,
+            .w = text_v.w,
+            .h = MODE_INFO_HEIGHT,
+        };
+
         ed->glyphs[glyph_count++] = (Glyph) {
             .x = mode_info_v.x,
             .y = mode_info_v.y,
@@ -842,7 +827,7 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
 
         RGBA8 colour;
         if (ed->search_match_count > 0 && ed->mode_text_length > 0) {
-            colour = (RGBA8) COLOUR_FOREGROUND;
+            colour = (RGBA8) COLOUR_GREEN;
             int_to_string(&w->frame_arena, ed->search_cursor+1);
             *(U8*)ARENA_ALLOC(&w->frame_arena, U8) = '/';
             int_to_string(&w->frame_arena, ed->search_match_count);
@@ -871,6 +856,42 @@ GlyphSlice editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport)
             colour, MODE_FONT_SIZE,
             x, y, mode_info_v.w - mode_info_v.x - MODE_INFO_PADDING*2.f
         );
+    } else if (ed->mode == Mode_Normal) {
+        Rect mode_info_v = (Rect) {
+            .x = text_v.x,
+            .y = text_v.y + text_v.h - CODE_LINE_SPACING,
+            .w = text_v.w,
+            .h = CODE_LINE_SPACING,
+        };
+
+        ed->glyphs[glyph_count++] = (Glyph) {
+            .x = mode_info_v.x,
+            .y = mode_info_v.y,
+            .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
+            .colour = COLOUR_MODE_INFO,
+        };
+
+        if (ed->filepath) {
+            U32 filepath_start = ed->filepath_length-1;
+            U32 slash_count = 1;
+            while (1) {
+                if (filepath_start == 0) break;
+                if (ed->filepath[filepath_start-1] == '/') {
+                    if (slash_count == 0) break;
+                    slash_count--;
+                }
+                filepath_start--;
+            }
+
+            F32 descent = font_atlas->descent[CODE_FONT_SIZE];
+            glyph_count += write_string(
+                &ed->glyphs[glyph_count],
+                ed->filepath + filepath_start, ed->filepath_length - filepath_start,
+                font_atlas,
+                (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
+                mode_info_v.x, mode_info_v.y + CODE_LINE_SPACING + descent, mode_info_v.w
+            );
+        }
     }
 
     return (GlyphSlice) { ed->glyphs, glyph_count };
@@ -1540,6 +1561,31 @@ U64 write_string_terminated(
         x += info.advance_width;
 
         str++;
+    }
+    return glyphs_written;
+}
+
+U64 write_string(
+    Glyph *glyphs,
+    U8 *str, U64 length,
+    FontAtlas *font_atlas,
+    RGBA8 colour, U64 font_size,
+    F32 x, F32 y, F32 max_width
+) { TRACE
+    U64 glyphs_written = 0;
+    for (U64 i = 0; i < length; ++i) {
+        U32 glyph_idx = glyph_lookup_idx(font_size, str[i]);
+        GlyphInfo info = font_atlas->glyph_info[glyph_idx];
+
+        if (x + info.advance_width > max_width) break;
+
+        glyphs[glyphs_written++] = (Glyph) {
+            .x = x + info.offset_x,
+            .y = y + info.offset_y,
+            .glyph_idx = glyph_idx,
+            .colour = colour,
+        };
+        x += info.advance_width;
     }
     return glyphs_written;
 }

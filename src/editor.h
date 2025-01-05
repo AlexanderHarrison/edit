@@ -76,6 +76,7 @@ typedef enum Mode {
     Mode_Insert,
     Mode_FileSelect,
     Mode_Search,
+    //Mode_QuickMove,
 } Mode;
 
 typedef enum UndoOp {

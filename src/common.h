@@ -8,19 +8,21 @@
 #include <tools.h>
 
 typedef enum FontSize {
-    FontSize_9, FontSize_13, FontSize_21,
+    FontSize_7, FontSize_13, FontSize_21,
     FontSize_Count,
 } FontSize;
 
 static const F32 font_size_px[FontSize_Count] = {
-    9.f, 13.f, 21.f,
+    7.f, 13.f, 21.f,
 };
 
 // Config -----------------------------
 
 #define CODE_FONT_SIZE FontSize_13
+#define CODE_SMALL_FONT_SIZE FontSize_7
 #define MODE_FONT_SIZE FontSize_21
 #define CODE_LINE_SPACING 17.f
+#define CODE_SMALL_LINE_SPACING 12.f
 #define CODE_SCROLL_SPEED_SLOW 0.2f
 #define CODE_SCROLL_SPEED_FAST 0.6f
 #define ANIM_EXP_FACTOR 1.0f
