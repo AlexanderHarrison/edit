@@ -1,8 +1,6 @@
 #ifndef FONT_H_
 #define FONT_H_
 
-#include "common.h"
-
 typedef struct Glyph {
     F32 x, y;
     U32 glyph_idx;

@@ -1,10 +1,16 @@
 #include "common.h"
-
 #include "font.h"
 #include "font.c"
+#include "ui.c"
 
+#include "filetree.h"
 #include "editor.h"
+
+#include "filetree.c"
 #include "editor.c"
+
+#include "../build/main_vert.h"
+#include "../build/main_frag.h"
 
 #define INITIAL_WIDTH 1200
 #define INITIAL_HEIGHT 800
@@ -65,6 +71,7 @@ W window_create(Arena *arena) { TRACE
 
     // VALIDATION --------------------------------------------------------------------------------
 
+#ifdef VALIDATION
     const char *validation_layer = "VK_LAYER_KHRONOS_validation";
     SCOPE_TRACE {
         ArenaResetPoint reset = arena_reset_point(arena);
@@ -82,6 +89,7 @@ W window_create(Arena *arena) { TRACE
         expect(validation_found);
         arena_reset(arena, &reset);
     }
+#endif
 
     // INSTANCES --------------------------------------------------------------------------------
     
@@ -101,8 +109,10 @@ W window_create(Arena *arena) { TRACE
             .pApplicationInfo = &app_info,
             .enabledExtensionCount = glfw_ext_count,
             .ppEnabledExtensionNames = glfw_exts,
+#ifdef VALIDATION
             .enabledLayerCount = 1,
             .ppEnabledLayerNames = &validation_layer,
+#endif
         };
 
         VK_ASSERT(vkCreateInstance(&create_info, NULL, &instance));
@@ -214,8 +224,10 @@ W window_create(Arena *arena) { TRACE
             .pEnabledFeatures = &features,
             .enabledExtensionCount = countof(required_dev_exts),
             .ppEnabledExtensionNames = required_dev_exts,
+#ifdef VALIDATION
             .enabledLayerCount = 1,
             .ppEnabledLayerNames = &validation_layer,
+#endif
         };
 
         VK_ASSERT(vkCreateDevice(phy_device, &device_info, NULL, &device));
@@ -407,26 +419,20 @@ W window_create(Arena *arena) { TRACE
 
     // SHADERS -------------------------------------------------------
 
-    Bytes vert_source = read_file_in("build/main_vert.spv", arena);
-    Bytes frag_source = read_file_in("build/main_frag.spv", arena);
-
-    expect(vert_source.ptr != NULL);
-    expect(frag_source.ptr != NULL);
-
     VkShaderModule vert_module, frag_module;
     SCOPE_TRACE {
         #pragma GCC diagnostic ignored "-Wcast-align"
         VkShaderModuleCreateInfo vert_info = {
             .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .codeSize = vert_source.len,
-            .pCode = (const U32*)vert_source.ptr,
+            .codeSize = build_main_vert_spv_len,
+            .pCode = (const U32*)build_main_vert_spv,
         };
 
         #pragma GCC diagnostic ignored "-Wcast-align"
         VkShaderModuleCreateInfo frag_info = {
             .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .codeSize = frag_source.len,
-            .pCode = (const U32*)frag_source.ptr,
+            .codeSize = build_main_frag_spv_len,
+            .pCode = (const U32*)build_main_frag_spv,
         };
         VK_ASSERT(vkCreateShaderModule(device, &vert_info, NULL, &vert_module));
         VK_ASSERT(vkCreateShaderModule(device, &frag_info, NULL, &frag_module));
@@ -684,8 +690,8 @@ void window_destroy(W *w) { TRACE
     gpu_free(w, w->staging_buffer.buffer_memory);
     vkDestroyBuffer(device, w->staging_buffer.buffer, NULL);
 
-    vkDestroySemaphore(device, w->image_available, NULL);
     vkDestroySemaphore(device, w->render_finished, NULL);
+    vkDestroySemaphore(device, w->image_available, NULL);
     vkDestroyFence(device, w->in_flight, NULL);
 
     vkDestroySurfaceKHR(instance, w->surface, NULL);
@@ -903,11 +909,8 @@ void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set) { TRACE
 
 // MAIN #####################################################
 
-#define SIZE_X FontSize_Count
-#define SIZE_Y 5*2
-
 int main(int argc, char *argv[]) { INIT_TRACE
-    Arena static_arena = arena_create_sized(4*GB);
+    Arena static_arena = arena_create_sized(1ull*GB);
 
     // gltf window and vulkan -------------------------------------------
 
@@ -925,11 +928,20 @@ int main(int argc, char *argv[]) { INIT_TRACE
     //const char *ttf_path = "/usr/share/fonts/TTF/IosevkaFixed-Regular.ttf";
     FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
 
-    // Editor -----------------------------------------------------------
+    // UI ---------------------------------------------------------------
+
+    UI *ui = ui_create(&w, font_atlas, &static_arena);
+
+    //// Editor -----------------------------------------------------------
 
     const char *file = NULL;
     if (argc > 1) file = argv[1];
-    Editor editor = editor_create(&w, &static_arena, NULL, (const U8*)file);
+    Panel *vsplit = panel_create(ui);
+    vsplit->flags |= PanelMode_VSplit;
+    Panel *editor_panel = editor_create(ui, (const U8*)file);
+    ui->root = vsplit;
+    panel_add_child(ui->root, editor_panel);
+    panel_focus(editor_panel);
 
     // glyph draw buffer ------------------------------------------------
 
@@ -956,6 +968,9 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     F32 frame = 10.0;
     while (!glfwWindowShouldClose(w.window)) {
+        bool has_ops = ui->op_count != 0;
+        ui_flush_ops(ui);
+
         // INPUTS -------------------------------------------------------------
 
         w.inputs.char_event_count = 0;
@@ -966,7 +981,10 @@ int main(int argc, char *argv[]) { INIT_TRACE
         w.inputs.key_repeating = 0;
         w.inputs.key_special_pressed = 0;
         w.inputs.key_special_repeating = 0;
-        glfwWaitEventsTimeout(0.1);
+        if (!has_ops)
+            glfwWaitEventsTimeout(0.1);
+        else
+            glfwPollEvents();
         w.inputs.mouse_in_window = glfwGetWindowAttrib(w.window, GLFW_HOVERED) != 0;
         w.inputs.mouse_pressed = w.inputs.mouse_held & ~w.inputs.mouse_held_prev;
         w.inputs.mouse_released = w.inputs.mouse_held_prev & ~w.inputs.mouse_held;
@@ -1029,16 +1047,16 @@ int main(int argc, char *argv[]) { INIT_TRACE
         // UPDATE ----------------------------------------------------------------
 
         Rect viewport = { 0.f, 0.f, width, height };
-        GlyphSlice glyphs = editor_update(&w, &editor, font_atlas, viewport);
-        U64 glyphs_size = glyphs.count * sizeof(Glyph);
+        ui_update(ui, &viewport);
+        U64 glyphs_size = ui->glyph_count * sizeof(Glyph);
 
         if (w.should_close) glfwSetWindowShouldClose(w.window, GLFW_TRUE);
 
         // write glyphs buffer
 
-        if (glyphs.count) {
+        if (glyphs_size) {
             Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, glyphs_size, 16);
-            memcpy(staging_glyph_draws, glyphs.ptr, glyphs_size);
+            memcpy(staging_glyph_draws, ui->glyphs, glyphs_size);
 
             VkBufferCopy *buffer_copy = ARENA_ALLOC(&w.frame_arena, *buffer_copy);
             *buffer_copy = (VkBufferCopy) {
@@ -1059,7 +1077,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
         // WAIT FOR NEXT FRAME ---------------------------------------------------
 
         U32 sc_image_idx;
-        {
+        SCOPE_TRACE {
             VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
             VkResult res = vkAcquireNextImageKHR(w.device, w.sc->sc, UINT64_MAX, w.image_available, VK_NULL_HANDLE, &sc_image_idx);
 
@@ -1091,7 +1109,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
         // START RECORDING -------------------------------------------------------
 
-        {
+        SCOPE_TRACE {
             VK_ASSERT(vkResetCommandBuffer(w.cmd_buffer, 0));
             VkCommandBufferBeginInfo begin_info = {
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1103,7 +1121,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
         // WRITE TRANSFER COMMANDS ------------------------------------------------
 
-        {
+        SCOPE_TRACE {
             U64 transition_count = 0;
             VkImageMemoryBarrier *image_barriers = arena_prealign(&w.frame_arena, alignof(VkImageMemoryBarrier));
 
@@ -1219,7 +1237,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
         // START RENDER ----------------------------------------------------------
 
-        {
+        SCOPE_TRACE {
             RGBA8 background = COLOUR_BACKGROUND;
             VkClearValue clear_colour = { .color = { .float32 = {
                 (float)background.r / 255.f,
@@ -1241,7 +1259,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
             vkCmdBeginRenderPass(w.cmd_buffer, &pass_info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        {
+        SCOPE_TRACE {
             VkViewport v = {
                 .x = 0.f,
                 .y = 0.f,
@@ -1266,18 +1284,18 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 NULL
             );
 
-            if (glyphs.count) {
-                expect(glyphs.count < MAX_GLYPHS);
-                vkCmdDraw(w.cmd_buffer, 4, (U32)glyphs.count, 0, 0);
+            if (glyphs_size) {
+                expect(ui->glyph_count < MAX_GLYPHS);
+                vkCmdDraw(w.cmd_buffer, 4, (U32)ui->glyph_count, 0, 0);
             }
         }
 
-        {
+        SCOPE_TRACE {
             vkCmdEndRenderPass(w.cmd_buffer);
             VK_ASSERT(vkEndCommandBuffer(w.cmd_buffer));
         }
 
-        {
+        SCOPE_TRACE {
             VkPipelineStageFlags dst_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
             VkSubmitInfo submit_info = {
                 .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -1292,7 +1310,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
             VK_ASSERT(vkQueueSubmit(w.queue, 1, &submit_info, w.in_flight));
         }
 
-        {
+        SCOPE_TRACE {
             VkPresentInfoKHR present_info = {
                 .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                 //.pNext = &(VkSwapchainPresentScalingCreateInfoEXT) {
@@ -1316,9 +1334,10 @@ int main(int argc, char *argv[]) { INIT_TRACE
         frame += 1.0f;
     }
 
-    VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
+    ui_destroy(ui);
 
-    editor_destroy(&editor);
+    VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
+    vkDeviceWaitIdle(w.device);
 
     gpu_free(&w, w.static_data_uniform_buffer_memory);
     vkDestroyBuffer(w.device, w.static_data_uniform_buffer, NULL);
@@ -1327,8 +1346,11 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     descriptor_set_destroy(&w, descriptor_set_glyphs);
     font_atlas_destroy(&w, font_atlas);
+    VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
     window_destroy(&w);
-    arena_destroy(&static_arena);
+
+    // TODO: Why does uncommenting this cause a segfault?????
+    //arena_destroy(&static_arena);
     return 0;
 }
 

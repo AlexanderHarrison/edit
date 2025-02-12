@@ -4,49 +4,6 @@
 #include <sys/types.h>
 #include <libgen.h>
 
-#include "common.h"
-#include "font.h"
-
-enum DirFlags {
-    DirFlag_Open = (1u << 0),
-    DirFlag_Loaded = (1u << 1),
-};
-
-// TODO just use pointers man
-typedef struct Dir {
-    struct Dir *parent;
-    U32 name_offset;
-    U32 file_names_offset;
-    U16 child_index;
-    U16 file_count;
-    U16 child_count;
-    U16 flags;
-} Dir;
-
-typedef enum EntryType {
-    EntryType_File,
-    EntryType_Dir,
-} EntryType;
-
-typedef struct FileTreeRow {
-    U8 entry_type;
-    U32 depth;
-    Dir *parent;
-    union {
-        Dir *dir;
-        U8 *filename;
-    };
-} FileTreeRow;
-
-typedef struct FileTree {
-    U8 *name_buffer;
-    Dir *dir_tree;
-    U32 text_buffer_head;
-    U32 dir_count;
-    FileTreeRow *rows;
-    U32 row_count;
-} FileTree;
-
 typedef struct Range {
     I64 start;
     I64 end;
@@ -74,7 +31,6 @@ typedef enum Group {
 typedef enum Mode {
     Mode_Normal,
     Mode_Insert,
-    Mode_FileSelect,
     Mode_Search,
     //Mode_QuickMove,
 } Mode;
@@ -101,14 +57,12 @@ typedef struct UndoStack {
 typedef struct Editor {
     Arena *arena;
     UndoStack undo_stack;
-    FileTree filetree;
     U8 *copied_text;
     U8 *filepath;
     U32 copied_text_length;
     U32 filepath_length;
     F32 scroll_y;
 
-    Glyph *glyphs; // cache to avoid reallocations
     U8 *text;
     I64 text_length;
 
@@ -125,21 +79,22 @@ typedef struct Editor {
     I64 search_match_count;
     I64 search_cursor;
 
-    I64 file_select_row;
-
     // animation values - do not set these directly
     F32 scroll_y_visual;
 } Editor;
 
 // if working_dir is NULL, then will get it from getcwd
-Editor
-editor_create(W *w, Arena *arena, const U8 *working_dir, const U8 *filepath);
+Panel *
+editor_create(UI *ui, const U8 *filepath);
 
 void
-editor_destroy(Editor *ed);
+editor_destroy(Panel *panel);
 
-GlyphSlice
-editor_update(W *w, Editor *ed, FontAtlas *font_atlas, Rect viewport);
+void
+editor_update(Panel *panel);
+
+int
+editor_load_filepath(Editor *ed, const U8 *filepath);
 
 static inline I64 clamp(I64 n, I64 low, I64 high) {
     if (n < low) return low;

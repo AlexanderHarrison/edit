@@ -1,8 +1,6 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-#include "font.h"
-
 #define GLYPH_LOOKUP_BUFFER_SIZE (256*sizeof(AtlasLocation)*FontSize_Count)
 #define FONT_ATLAS_SIZE 512
 

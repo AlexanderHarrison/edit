@@ -16,6 +16,10 @@ static const F32 font_size_px[FontSize_Count] = {
     7.f, 13.f, 21.f,
 };
 
+static inline bool is(U64 held, U64 mask) {
+    return (held & mask) == mask;
+}
+
 // Config -----------------------------
 
 #define CODE_FONT_SIZE FontSize_13
@@ -40,13 +44,14 @@ static const F32 font_size_px[FontSize_Count] = {
 #define COLOUR_BLUE     { 100, 100, 230, 255 }
 #define COLOUR_PURPLE   { 150, 50, 110, 255 }
 
-#define COLOUR_BACKGROUND   { 4, 4, 4, 255 }
-#define COLOUR_FOREGROUND   { 170, 170, 170, 255 }
-#define COLOUR_MODE_INFO    { 10, 10, 10, 255 }
-#define COLOUR_SELECT       { 40, 40, 40, 255 }
-#define COLOUR_SEARCH       { 80, 50, 10, 255 }
-#define COLOUR_SEARCH_SHOWN { 80, 10, 80, 255 }
-#define COLOUR_DIRECTORY    {100, 100, 255, 255}
+#define COLOUR_BACKGROUND       { 4, 4, 4, 255 }
+#define COLOUR_FOREGROUND       { 170, 170, 170, 255 }
+#define COLOUR_MODE_INFO        { 10, 10, 10, 255 }
+#define COLOUR_SELECT           { 30, 30, 30, 255 }
+#define COLOUR_SEARCH           { 80, 50, 10, 255 }
+#define COLOUR_SEARCH_SHOWN     { 80, 10, 80, 255 }
+#define COLOUR_DIRECTORY_OPEN   {100, 100, 255, 255}
+#define COLOUR_DIRECTORY_CLOSED {100, 100, 100, 255}
 #define COLOUR_COMMENT      COLOUR_RED
 #define COLOUR_STRING       COLOUR_GREEN
 
@@ -69,12 +74,21 @@ static const F32 font_size_px[FontSize_Count] = {
 #define FILETREE_MAX_ROW_SIZE (64ul*MB)
 #define FILETREE_MAX_ENTRY_COUNT (FILETREE_MAX_ENTRY_SIZE / sizeof(Entry))
 #define FILETREE_MAX_ROW_COUNT (FILETREE_MAX_ROW_SIZE / sizeof(FileTreeRow))
+#define FILETREE_MAX_SEARCH_SIZE (4ul*KB)
+
+#define UI_MAX_PANEL_SIZE (64ul*MB)
+#define UI_MAX_PANEL_COUNT (UI_MAX_PANEL_SIZE / sizeof(Panel))
+#define UI_MAX_OP_QUEUE_SIZE (64ul*MB)
+#define UI_MAX_OP_QUEUE_COUNT (UI_MAX_OP_QUEUE_SIZE / sizeof(UIOp))
 
 #define MAX_GLYPHS 8192
 #define MAX_GLYPHS_SIZE (MAX_GLYPHS*sizeof(Glyph))
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+
+// vulkan validation messes with gdb, comment out when debugging
+//#define VALIDATION
 
 // timing information
 #if 0
