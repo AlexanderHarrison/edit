@@ -32,30 +32,31 @@ static inline bool is(U64 held, U64 mask) {
 #define CODE_SCROLL_SPEED_FAST 0.6f
 #define ANIM_EXP_FACTOR 1.0f
 
-#define SELECTION_GROUP_BAR_WIDTH 2.f
+#define BAR_SIZE 2.f
 #define FILETREE_WIDTH 200.f
 #define FILETREE_INDENTATION_WIDTH 10.f
 #define MODE_INFO_HEIGHT 26.f
 #define MODE_INFO_Y_OFFSET 60.f
 #define MODE_INFO_PADDING 5.f
 
+#define COLOUR_WHITE    { 230, 230, 230, 255 }
 #define COLOUR_RED      { 230, 100, 100, 255 }
 #define COLOUR_ORANGE   { 160, 100,  20, 255 }
 #define COLOUR_GREEN    { 100, 160, 100, 255 }
 #define COLOUR_BLUE     { 100, 100, 230, 255 }
 #define COLOUR_PURPLE   { 150, 50, 110, 255 }
 
-#define COLOUR_BACKGROUND       { 4, 4, 4, 255 }
-#define COLOUR_FOREGROUND       { 170, 170, 170, 255 }
-#define COLOUR_MODE_INFO        { 10, 10, 10, 200 }
-#define COLOUR_FILE_INFO        { 10, 10, 10, 255 }
-#define COLOUR_SELECT           { 30, 30, 30, 255 }
-#define COLOUR_SEARCH           { 80, 50, 10, 255 }
-#define COLOUR_SEARCH_SHOWN     { 80, 10, 80, 255 }
-#define COLOUR_DIRECTORY_OPEN   {100, 100, 255, 255}
-#define COLOUR_DIRECTORY_CLOSED {100, 100, 100, 255}
-#define COLOUR_COMMENT      COLOUR_RED
-#define COLOUR_STRING       COLOUR_GREEN
+#define COLOUR_BACKGROUND           { 4, 4, 4, 255 }
+#define COLOUR_FOREGROUND           { 170, 170, 170, 255 }
+#define COLOUR_MODE_INFO            { 10, 10, 10, 200 }
+#define COLOUR_FILE_INFO            { 10, 10, 10, 255 }
+#define COLOUR_SELECT               { 30, 30, 30, 255 }
+#define COLOUR_SEARCH               { 80, 50, 10, 255 }
+#define COLOUR_SEARCH_SHOWN         { 80, 10, 80, 255 }
+#define COLOUR_DIRECTORY_OPEN       {100, 100, 255, 255}
+#define COLOUR_DIRECTORY_CLOSED     {100, 100, 100, 255}
+#define COLOUR_COMMENT              COLOUR_RED
+#define COLOUR_STRING               COLOUR_GREEN
 
 
 // Limits -----------------------------

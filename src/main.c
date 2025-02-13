@@ -1,11 +1,12 @@
 #include "common.h"
 #include "font.h"
 #include "font.c"
-#include "ui.c"
 
+#include "ui.h"
 #include "filetree.h"
 #include "editor.h"
 
+#include "ui.c"
 #include "filetree.c"
 #include "editor.c"
 

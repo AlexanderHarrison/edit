@@ -1,109 +1,3 @@
-typedef struct Panel Panel;
-typedef struct UI UI;
-
-// TODO switch to handles
-
-enum PanelFlags {
-    PanelMode_VSplit = (1u << 0),
-    PanelMode_HSplit = (1u << 1),
-
-    PanelFlag_InUse = (1u << 2),
-    PanelFlag_Focused = (1u << 3),
-};
-
-typedef void (*PanelFn)(Panel *panel);
-
-typedef struct Panel {
-    // modify these
-    void *data;
-    F32 static_w;
-    F32 static_h;
-    F32 dynamic_weight_w;
-    F32 dynamic_weight_h;
-    PanelFn update_fn;
-    PanelFn destroy_fn;
-    const char *name;
-
-    // please do not modify these
-    Rect viewport;
-    Arena *arena;
-    Panel *parent;
-    Panel *child;
-    Panel *sibling_prev;
-    Panel *sibling_next;
-    U32 flags;
-    UI *ui;
-} Panel;
-
-typedef struct UIOp {
-    enum UIOp_Tag {
-        UIOp_PanelDestroy,
-        UIOp_PanelFocus,
-        UIOp_PanelInsertBefore,
-        UIOp_PanelInsertAfter,
-        UIOp_PanelAddChild,
-    } tag;
-
-    Panel *panel;
-    Panel *panel_source;
-} UIOp;
-
-typedef struct UI {
-    Panel *root;
-    W *w;
-    FontAtlas *atlas;
-    Panel *panel_store;
-    Panel *free;
-    Panel *focused;
-    Glyph *glyphs;
-    U64 glyph_count;
-    UIOp *op_queue;
-    U64 op_count;
-} UI;
-
-// external --------------------------------------------------------
-
-UI     *ui_create           (W *w, FontAtlas *atlas, Arena *arena);
-void    ui_destroy          (UI *ui);
-void    ui_update           (UI *ui, Rect *viewport);
-UIOp   *ui_push_op          (UI *ui);
-void    ui_flush_ops        (UI *ui);
-Glyph  *ui_push_glyph       (UI *ui);
-Panel  *panel_create        (UI *ui);
-void    panel_focus         (Panel *panel);
-void    panel_detach        (Panel *panel);
-void    panel_destroy       (Panel *panel);
-void    panel_add_child     (Panel *parent, Panel *new);
-void    panel_insert_after  (Panel *old, Panel *new);
-void    panel_insert_before (Panel *old, Panel *new);
-void    panel_focus_queued         (Panel *panel);
-void    panel_destroy_queued       (Panel *panel);
-void    panel_add_child_queued     (Panel *parent, Panel *new);
-void    panel_insert_after_queued  (Panel *old, Panel *new);
-void    panel_insert_before_queued (Panel *old, Panel *new);
-
-// creates an arena if it doesn't exist
-Arena  *panel_arena         (Panel *panel);
-
-// returns number of glyphs written
-U64 write_string_terminated(
-    Glyph *glyphs,
-    const U8 *str,
-    FontAtlas *font_atlas,
-    RGBA8 colour, U64 font_size,
-    F32 x, F32 y, F32 max_width
-);
-
-U64 write_string(
-    Glyph *glyphs,
-    const U8 *str, U64 length,
-    FontAtlas *font_atlas,
-    RGBA8 colour, U64 font_size,
-    F32 x, F32 y, F32 max_width
-);
-
-// internal -----------------------------------------------
-
 void    panel_set_viewport  (Panel *panel, Rect *viewport);
 void    panel_update        (Panel *panel);
 void    panel_destroy_inner (Panel *panel);
@@ -150,6 +44,43 @@ void ui_destroy(UI *ui) { TRACE
 
 void ui_update(UI *ui, Rect *viewport) { TRACE
     ui->glyph_count = 0;
+
+    W *w = ui->w;
+
+    U64 pressed = w->inputs.key_pressed;
+    U64 modifiers = w->inputs.modifiers;
+    bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
+
+    if (ctrl && is(pressed, key_mask(GLFW_KEY_W))) {
+        if (ui->focused) {
+            bool shift = is(modifiers, GLFW_MOD_SHIFT);
+
+            if (!shift) {
+                if (ui->focused->sibling_next)
+                    panel_focus(ui->focused->sibling_next);
+                else while (ui->focused->sibling_prev)
+                    panel_focus(ui->focused->sibling_prev);
+            } else {
+                if (ui->focused->sibling_prev)
+                    panel_focus(ui->focused->sibling_prev);
+                else while (ui->focused->sibling_next)
+                    panel_focus(ui->focused->sibling_next);
+            }
+        }
+    }
+
+    if (ctrl && is(pressed, key_mask(GLFW_KEY_Q)))
+        w->should_close = true;
+
+    if (ctrl && is(pressed, key_mask(GLFW_KEY_P))) {
+        if (ui->focused) {
+            Panel *new_editor = editor_create(ui, NULL);
+            panel_insert_after(ui->focused, new_editor);
+            panel_focus_queued(new_editor);
+        }
+    }
+
+
     if (ui->root) {
         panel_set_viewport(ui->root, viewport);
         panel_update(ui->root);

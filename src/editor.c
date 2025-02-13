@@ -5,7 +5,6 @@
 //   h - expand selection group
 //   l - contract selection group
 //
-//   J - expand selection downwards
 //   K - contract selection upwards (buggy)
 // C-J - contract selection downwards (buggy)
 // C-K - expand selection upwards
@@ -16,6 +15,8 @@
 //   f - select entire file
 //   F - select from selection start to end of file
 // C-F - select from start of file to selection end
+//
+//   p - vsplit, adding another editor to the right
 //
 //   / - enter search mode
 //
@@ -43,6 +44,9 @@
 //   m - trim whitespace from ends of selection
 //   u - undo
 // C-r - redo
+//
+//   q - close editor if saved
+//   Q - close editor without saving
 //
 //   w - contract selection group and select first new group
 //   W - expand selection group and select first new group
@@ -227,7 +231,7 @@ void editor_update(Panel *panel) { TRACE
                 editor_selection_trim(ed);
             }
 
-            if (is(pressed, key_mask(GLFW_KEY_W))) {
+            if (!ctrl && is(pressed, key_mask(GLFW_KEY_W))) {
                 editor_selection_trim(ed);
                 if (shift)
                     editor_group_expand(ed);
@@ -291,7 +295,7 @@ void editor_update(Panel *panel) { TRACE
                 ed->mode_text_length = 0;
             }
 
-            if (is(pressed, key_mask(GLFW_KEY_P))) {
+            if (!ctrl && is(pressed, key_mask(GLFW_KEY_P))) {
                 I64 paste_idx;
                 if (shift) {
                     paste_idx = ed->selection_a;
@@ -321,7 +325,10 @@ void editor_update(Panel *panel) { TRACE
             //if (ctrl & is(held, key_mask(GLFW_KEY_D))) ed->scroll_y += CODE_SCROLL_SPEED_FAST;
             //if (ctrl & is(held, key_mask(GLFW_KEY_U))) ed->scroll_y -= CODE_SCROLL_SPEED_FAST;
 
-            if (is(pressed, key_mask(GLFW_KEY_Q))) w->should_close = true;
+            if (!ctrl && is(pressed, key_mask(GLFW_KEY_Q))) {
+                if ((ed->flags & EditorFlag_Unsaved) == 0 || shift)
+                    panel_destroy_queued(panel);
+            }
             break;
         }
         case Mode_Insert: {
@@ -496,7 +503,7 @@ void editor_update(Panel *panel) { TRACE
     // START RENDER ----------------------------------------------------------
 
     Rect selection_bar_v = *viewport;
-    selection_bar_v.w = SELECTION_GROUP_BAR_WIDTH;
+    selection_bar_v.w = BAR_SIZE;
 
     Rect text_v = selection_bar_v;
     text_v.x += selection_bar_v.w;
@@ -677,12 +684,14 @@ void editor_update(Panel *panel) { TRACE
         U32 glyph_idx = glyph_lookup_idx(font_size, ch);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
-        *ui_push_glyph(ui) = (Glyph) {
-            .x = text_v.x + pen_x + info.offset_x,
-            .y = text_v.y + pen_y + info.offset_y,
-            .glyph_idx = glyph_idx,
-            .colour = state_colours[state],
-        };
+        if (pen_x + info.advance_width <= text_v.x + text_v.w) {
+            *ui_push_glyph(ui) = (Glyph) {
+                .x = text_v.x + pen_x + info.offset_x,
+                .y = text_v.y + pen_y + info.offset_y,
+                .glyph_idx = glyph_idx,
+                .colour = state_colours[state],
+            };
+        }
         pen_x += info.advance_width;
     }
 
@@ -740,9 +749,9 @@ void editor_update(Panel *panel) { TRACE
     } else if (ed->mode == Mode_Normal) {
         Rect mode_info_v = (Rect) {
             .x = text_v.x,
-            .y = text_v.y + text_v.h - CODE_LINE_SPACING,
+            .y = text_v.y + text_v.h - CODE_LINE_SPACING - BAR_SIZE,
             .w = text_v.w,
-            .h = CODE_LINE_SPACING,
+            .h = CODE_LINE_SPACING + BAR_SIZE,
         };
 
         *ui_push_glyph(ui) = (Glyph) {
@@ -751,6 +760,15 @@ void editor_update(Panel *panel) { TRACE
             .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
             .colour = COLOUR_FILE_INFO,
         };
+
+        if (panel->flags & PanelFlag_Focused) {
+            *ui_push_glyph(ui) = (Glyph) {
+                .x = mode_info_v.x,
+                .y = mode_info_v.y + CODE_LINE_SPACING,
+                .glyph_idx = special_glyph_rect((U32)mode_info_v.w, BAR_SIZE),
+                .colour = COLOUR_WHITE,
+            };
+        }
 
         if (ed->filepath) {
             U32 filepath_start = ed->filepath_length-1;
