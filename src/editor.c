@@ -1,3 +1,15 @@
+// UI STUFF ############################################################
+// C-w - focus next panel
+// C-W - focus previous panel
+// C-q - exit
+// C-p - create new editor vsplit after focus
+//
+// FILE TREE ###########################################################
+// C-R - expand all folders
+// Esc - exit filetree
+//
+// EDITOR ##############################################################
+//
 // MOVEMENT AND SELECTION  ---------------------------------------------
 //   j - select next group
 //   k - select previous group

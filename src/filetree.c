@@ -1,7 +1,3 @@
-// C-R - expand all folders
-//
-// Escape - exit filetree without selecting
-
 typedef struct FileTreeRow FileTreeRow;
 
 void    filetree_clear              (FileTree *ft);
