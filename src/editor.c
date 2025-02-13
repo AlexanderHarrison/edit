@@ -10,8 +10,19 @@
 // C-J - contract selection downwards (buggy)
 // C-K - expand selection upwards
 //
-// Tab - Toggle paragraph granularity
-//   r - Toggle subword granularity
+// Tab - toggle paragraph granularity
+//   r - toggle subword granularity
+//
+//   f - select entire file
+//   F - select from selection start to end of file
+// C-F - select from start of file to selection end
+//
+//   / - enter search mode
+//
+// SEARCH MODE ---------------------------------------------------------
+// C-j - go to next matched item
+// C-k - go to previous matched item
+// Enter - exit search mode and select current matched item
 //
 // EDIT MODE -----------------------------------------------------------
 //   c - delete selection and enter edit mode
@@ -37,6 +48,9 @@
 //   W - expand selection group and select first new group
 //   e - contract selection group and select last new group
 //   E - expand selection group and select last new group
+//
+//   t - open file tree and recursively expand all folders
+//   T - open file tree
 
 UndoStack   undo_create(Arena *arena);
 void        undo_clear(UndoStack *st);
@@ -150,9 +164,10 @@ void editor_update(Panel *panel) { TRACE
             }
 
             if (ctrl && is(pressed, key_mask(GLFW_KEY_S))) {
-                if (ed->filepath) {
+                if (ed->filepath && (ed->flags & EditorFlag_Unsaved) != 0) {
                     expect(ed->text_length >= 0);
                     expect(write_file((char*)ed->filepath, ed->text, (U64)ed->text_length) == 0);
+                    ed->flags &= ~(U32)EditorFlag_Unsaved;
                     printf("wrote %li bytes to %s\n", ed->text_length, ed->filepath);
                 }
             }
@@ -251,8 +266,10 @@ void editor_update(Panel *panel) { TRACE
             }
 
             if (is(pressed, key_mask(GLFW_KEY_F))) {
-                ed->selection_a = 0;
-                ed->selection_b = ed->text_length;
+                if (!ctrl)
+                    ed->selection_b = ed->text_length;
+                if (!shift)
+                    ed->selection_a = 0;
             }
 
             if (is(pressed, key_mask(GLFW_KEY_R))) {
@@ -732,7 +749,7 @@ void editor_update(Panel *panel) { TRACE
             .x = mode_info_v.x,
             .y = mode_info_v.y,
             .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
-            .colour = COLOUR_MODE_INFO,
+            .colour = COLOUR_FILE_INFO,
         };
 
         if (ed->filepath) {
@@ -748,12 +765,23 @@ void editor_update(Panel *panel) { TRACE
             }
 
             F32 descent = font_atlas->descent[CODE_FONT_SIZE];
+
+            if (ed->flags & EditorFlag_Unsaved) {
+                ui->glyph_count += write_string_terminated(
+                    &ui->glyphs[ui->glyph_count],
+                    (const U8*)"[+]",
+                    font_atlas,
+                    (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
+                    mode_info_v.x, mode_info_v.y + CODE_LINE_SPACING + descent, mode_info_v.w
+                );
+            }
+
             ui->glyph_count += write_string(
                 &ui->glyphs[ui->glyph_count],
                 ed->filepath + filepath_start, ed->filepath_length - filepath_start,
                 font_atlas,
                 (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
-                mode_info_v.x, mode_info_v.y + CODE_LINE_SPACING + descent, mode_info_v.w
+                mode_info_v.x + 30.f, mode_info_v.y + CODE_LINE_SPACING + descent, mode_info_v.w
             );
         }
     }
@@ -1032,6 +1060,7 @@ void editor_text_remove(Editor *ed, I64 start, I64 end) { TRACE
 
     undo_record(&ed->undo_stack, start, &ed->text[start], end - start, UndoOp_Remove);
     editor_text_remove_raw(ed, start, end);
+    ed->flags |= EditorFlag_Unsaved;
 }
 
 void editor_text_remove_raw(Editor *ed, I64 start, I64 end) { TRACE
@@ -1063,6 +1092,7 @@ void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
 
     undo_record(&ed->undo_stack, at, text, length, UndoOp_Insert);
     editor_text_insert_raw(ed, at, text, length);
+    ed->flags |= EditorFlag_Unsaved;
 }
 
 void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE

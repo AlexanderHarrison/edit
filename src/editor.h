@@ -54,6 +54,10 @@ typedef struct UndoStack {
     U32 undo_count;
 } UndoStack;
 
+enum EditorFlags {
+    EditorFlag_Unsaved = (1ul << 0ul),
+};
+
 typedef struct Editor {
     Arena *arena;
     UndoStack undo_stack;
@@ -62,6 +66,7 @@ typedef struct Editor {
     U32 copied_text_length;
     U32 filepath_length;
     F32 scroll_y;
+    U32 flags;
 
     U8 *text;
     I64 text_length;

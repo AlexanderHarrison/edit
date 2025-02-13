@@ -1,3 +1,7 @@
+// C-R - expand all folders
+//
+// Escape - exit filetree without selecting
+
 typedef struct FileTreeRow FileTreeRow;
 
 void    filetree_clear              (FileTree *ft);
@@ -208,7 +212,10 @@ void filetree_update(Panel *panel) { TRACE
 
         bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
 
-        if (is(special_pressed, special_mask(GLFW_KEY_ESCAPE))) {
+        bool escape = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
+        bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
+
+        if (escape || caps) {
             Panel *target_editor = ft->target_editor;
             panel_focus_queued(target_editor);
             panel_destroy_queued(panel);

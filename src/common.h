@@ -47,7 +47,8 @@ static inline bool is(U64 held, U64 mask) {
 
 #define COLOUR_BACKGROUND       { 4, 4, 4, 255 }
 #define COLOUR_FOREGROUND       { 170, 170, 170, 255 }
-#define COLOUR_MODE_INFO        { 10, 10, 10, 255 }
+#define COLOUR_MODE_INFO        { 10, 10, 10, 200 }
+#define COLOUR_FILE_INFO        { 10, 10, 10, 255 }
 #define COLOUR_SELECT           { 30, 30, 30, 255 }
 #define COLOUR_SEARCH           { 80, 50, 10, 255 }
 #define COLOUR_SEARCH_SHOWN     { 80, 10, 80, 255 }

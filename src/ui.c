@@ -88,7 +88,7 @@ Arena  *panel_arena         (Panel *panel);
 // returns number of glyphs written
 U64 write_string_terminated(
     Glyph *glyphs,
-    U8 *str,
+    const U8 *str,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_width
@@ -96,7 +96,7 @@ U64 write_string_terminated(
 
 U64 write_string(
     Glyph *glyphs,
-    U8 *str, U64 length,
+    const U8 *str, U64 length,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_width
@@ -398,7 +398,7 @@ void panel_add_child_queued(Panel *parent, Panel *new) { TRACE
 // returns number of glyphs written
 U64 write_string_terminated(
     Glyph *glyphs,
-    U8 *str,
+    const U8 *str,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_x
@@ -428,7 +428,7 @@ U64 write_string_terminated(
 
 U64 write_string(
     Glyph *glyphs,
-    U8 *str, U64 length,
+    const U8 *str, U64 length,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_width
