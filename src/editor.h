@@ -88,9 +88,6 @@ Panel *
 editor_create(UI *ui, const U8 *filepath);
 
 void
-editor_destroy(Panel *panel);
-
-void
 editor_update(Panel *panel);
 
 int

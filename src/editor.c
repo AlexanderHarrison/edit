@@ -42,7 +42,7 @@ UndoStack   undo_create(Arena *arena);
 void        undo_clear(UndoStack *st);
 UndoElem   *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op);
 
-void        editor_dealloc_file(Editor *ed);
+void        editor_clear_file(Editor *ed);
 Range       editor_group(Editor *ed, Group group, I64 byte);
 Range       editor_group_next(Editor *ed, Group group, I64 current_group_end);
 Range       editor_group_prev(Editor *ed, Group group, I64 current_group_start);
@@ -66,7 +66,6 @@ static U64 int_to_string(Arena *arena, I64 n);
 Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
     Panel *panel = panel_create(ui);
     panel->update_fn = editor_update;
-    panel->destroy_fn = editor_destroy;
     Arena *arena = panel_arena(panel);
 
     Editor *ed = arena_alloc(arena, sizeof(Editor), alignof(Editor));
@@ -75,19 +74,15 @@ Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
         .selection_group = Group_Line,
         .copied_text = arena_alloc(arena, COPY_MAX_LENGTH, 16),
         .mode_text = arena_alloc(arena, MODE_TEXT_MAX_LENGTH, 16),
+        .text = arena_alloc(arena, TEXT_MAX_LENGTH, page_size()),
     };
     ed->arena = arena;
     panel->data = ed;
+    panel->name = "editor";
 
     expect(editor_load_filepath(ed, filepath) == 0);
 
     return panel;
-}
-
-void editor_destroy(Panel *panel) { TRACE
-    Editor *ed = panel->data;
-    vm_dealloc(ed->text, TEXT_MAX_LENGTH);
-    editor_dealloc_file(ed);
 }
 
 void editor_group_expand(Editor *ed) { TRACE
@@ -296,6 +291,11 @@ void editor_update(Panel *panel) { TRACE
                 Panel *filetree_panel = filetree_create(panel->ui, panel, NULL);
                 panel_insert_before_queued(panel, filetree_panel);
                 panel_focus_queued(filetree_panel);
+
+                if (!shift) {
+                    FileTree *ft = filetree_panel->data;
+                    filetree_dir_open_all(ft, &w->frame_arena, ft->dir_tree);
+                }
             }
 
             //if (is(pressed, key_mask(GLFW_KEY_K))) ed->scroll_y -= 1.f;
@@ -833,16 +833,12 @@ int editor_load_filepath(Editor *ed, const U8 *filepath) { TRACE
     if (filepath == NULL) return 0;
 
     // TODO: this leaks - allocates for each opened file
+    // Change to reusable staticly sized buffer
     U32 filepath_length = (U32)strlen((const char*)filepath);
     U8 *arena_filepath = ARENA_ALLOC_ARRAY(ed->arena, U8, filepath_length+1);
     memcpy(arena_filepath, filepath, filepath_length+1);
 
-    editor_dealloc_file(ed);
-
-    if (ed->text == NULL) {
-        ed->text = vm_alloc(TEXT_MAX_LENGTH);
-        expect(ed->text != NULL);
-    }
+    editor_clear_file(ed);
 
     I64 size = read_file_to_buffer(ed->text, TEXT_MAX_LENGTH, filepath);
     if (size >= 0) {
@@ -865,11 +861,10 @@ int editor_load_filepath(Editor *ed, const U8 *filepath) { TRACE
     return 0;
 }
 
-void editor_dealloc_file(Editor *ed) { TRACE
+void editor_clear_file(Editor *ed) { TRACE
     ed->filepath_length = 0;
     ed->filepath = NULL;
     ed->text_length = 0;
-    ed->text = NULL;
 }
 
 static inline U8 editor_text(Editor *ed, I64 byte) {

@@ -35,6 +35,11 @@ typedef struct FileTreeRow {
     };
 } FileTreeRow;
 
+enum SearchFlags {
+    Search_DistanceMask = 0xFul,
+    SearchFlag_CaseSensitive = (1ul << 4ul),
+};
+
 typedef struct FileTree {
     U8 *name_buffer;
     Dir *dir_tree;
@@ -46,6 +51,8 @@ typedef struct FileTree {
     Panel *target_editor;
 
     U8 *search_buffer;
+    U8 *search_string;
+    U32 search_flags;
     U32 search_buffer_head;
 } FileTree;
 
@@ -64,13 +71,19 @@ Panel *filetree_create(UI *ui, Panel *target_editor, const U8 *working_dir) { TR
         .dir_tree = dir_tree,
         .rows = rows,
         .target_editor = target_editor,
-        .search_buffer = arena_alloc(arena, FILETREE_MAX_SEARCH_SIZE, page_size())
+        .search_buffer = arena_alloc(arena, FILETREE_MAX_SEARCH_SIZE, page_size()),
+        .search_string = arena_alloc(arena, FILETREE_MAX_SEARCH_SIZE, page_size()),
     };
+
+    // null terminate, just in case
+    ft->search_buffer[0] = 0;
+    ft->search_string[0] = 0;
 
     panel->data = ft;
     panel->static_w = 100.f;
     panel->dynamic_weight_w = 0.1f;
     panel->update_fn = filetree_update;
+    panel->name = "filetree";
 
     Arena *frame_arena = &panel->ui->w->frame_arena;
     if (working_dir == NULL) {
@@ -83,25 +96,97 @@ Panel *filetree_create(UI *ui, Panel *target_editor, const U8 *working_dir) { TR
     return panel;
 }
 
-static bool str_contains(const U8 *a, const U8 *b) {
-    while (*a) {
+static U8 to_lowercase(U8 c) {
+    if ('A' <= c && c <= 'Z')
+        return c - 'A' + 'a';
+    return c;
+}
+
+static bool str_match_exact(const U8 *a, const U8 *b, bool case_insensitive) {
+    while (1) {
         const U8 *a_2 = a;
         const U8 *b_2 = b;
 
-        while (*b_2) {
-            if (*b_2 != *a_2)
-                goto NEXT_CHAR;
-            b_2++;
+        while (1) {
+            U8 a_c = *a_2;
+            U8 b_c = *b_2;
+
+            if (case_insensitive) {
+                a_c = to_lowercase(a_c);
+                b_c = to_lowercase(b_c);
+            }
+
+            if (b_c == 0) return true;
+            if (a_c == 0) return false;
+            if (a_c != b_c) break;
+
             a_2++;
+            b_2++;
         }
 
-        return true;
-
-NEXT_CHAR:
         a++;
     }
+}
 
-    return false;
+static bool str_match_fuzzy(const U8 *a, const U8 *b, U32 max_distance) {
+    U8 b_first = to_lowercase(*b);
+    if (b_first == 0)
+        return true;
+
+    // linear scan over 'a' matching first character of 'b'
+    while (1) {
+        U8 a_c = to_lowercase(*a);
+        if (a_c == 0)
+            // ran out of 'a'.
+            return false;
+
+        if (b_first == a_c) {
+            // found matching first character
+
+            I64 distance_left = max_distance;
+            const U8 *b_rest = b + 1;
+            const U8 *a_rest = a + 1;
+
+            // scan over rest of 'b' and 'a', counting up distance
+            while (1) {
+                a_c = *a_rest;
+                U8 b_c = *b_rest;
+
+                if (b_c == 0) {
+                    // didn't run out of distance for the rest of 'b'
+                    return true;
+                } else if (a_c == b_c) {
+                    // matches first char :)
+                    a_rest++;
+                    b_rest++;
+                } else if (a_c != 0 && *(a_rest+1) == b_c) {
+                    // matches second char :)
+                    a_rest += 2;
+                    b_rest++;
+                } else if (distance_left == 0) {
+                    // out of distance
+                    goto NEXT_FIRST_CHAR_MATCH;
+                } else {
+                    // otherwise, decrement allowed distance and carry on
+                    distance_left--;
+                    b_rest++;
+                }
+            }
+        }
+
+NEXT_FIRST_CHAR_MATCH:
+        a++;
+    }
+}
+
+static bool str_match(const U8 *a, const U8 *b, U32 search_flags) {
+    U32 allowed_distance = search_flags & Search_DistanceMask;
+    bool case_insensitive = (search_flags & SearchFlag_CaseSensitive) == 0;
+
+    if (allowed_distance == 0)
+        return str_match_exact(a, b, case_insensitive);
+    else
+        return str_match_fuzzy(a, b, allowed_distance);
 }
 
 void filetree_update(Panel *panel) { TRACE
@@ -123,7 +208,13 @@ void filetree_update(Panel *panel) { TRACE
 
         bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
 
-        if (ctrl && is(pressed | repeating, key_mask(GLFW_KEY_R))) {
+        if (is(special_pressed, special_mask(GLFW_KEY_ESCAPE))) {
+            Panel *target_editor = ft->target_editor;
+            panel_focus_queued(target_editor);
+            panel_destroy_queued(panel);
+        }
+
+        if (ctrl && is(pressed, key_mask(GLFW_KEY_R))) {
             filetree_dir_open_all(ft, &w->frame_arena, &ft->dir_tree[0]);
         }
 
@@ -179,12 +270,45 @@ void filetree_update(Panel *panel) { TRACE
                     ft->search_buffer_head--;
                 }
             }
+        }
+    }
 
-            if (search_buffer_changed) {
-                ft->search_buffer[ft->search_buffer_head] = 0; // ensure null terminated
-                filetree_remake_rows(ft);
+    // REMAKE SEARCH VARS ---------------------------------------------
+
+    if (search_buffer_changed) {
+        U64 normal_count = 0;
+        U32 search_flags = 0;
+        U64 search_buffer_head = ft->search_buffer_head;
+        U32 search_distance = 0;
+        for (U64 i = 0; i < search_buffer_head; ++i) {
+            U8 c = ft->search_buffer[i];
+
+            if (c == '!') {
+                search_flags |= SearchFlag_CaseSensitive;
+            } else if (c == '*') {
+                search_distance++;
+            } else {
+                // only these characters are searched against
+                bool lowercase = 'a' <= c && c <= 'z';
+                bool uppercase = 'A' <= c && c <= 'Z';
+                bool special = c == ' ' || c == '\'' || c == '"' || c == '_' || c == '.';
+
+                if (uppercase)
+                    search_flags |= SearchFlag_CaseSensitive;
+                if (uppercase || lowercase || special)
+                    ft->search_string[normal_count++] = c;
             }
         }
+        
+        ft->search_flags = search_flags | (search_distance & Search_DistanceMask);
+
+        // ensure null terminated
+        ft->search_string[normal_count] = 0;
+        ft->search_buffer[search_buffer_head] = 0;
+
+        // remake rows ------------
+
+        filetree_remake_rows(ft);
     }
 
     // RENDER ----------------------------------------------------
@@ -261,10 +385,12 @@ void filetree_update(Panel *panel) { TRACE
 static void filetree_remake_rows_inner(FileTree *ft, Dir *parent, U32 depth) {
     if ((parent->flags & DirFlag_Open) == 0) return;
 
+    bool filter = ft->search_string[0] != 0;
+
     for (U16 child_dir_i = 0; child_dir_i < parent->child_count; ++child_dir_i) {
         Dir *child = &ft->dir_tree[parent->child_index + child_dir_i];
-        U8 *filename = ft->name_buffer + child->name_offset;
-        if (ft->search_buffer_head == 0 || str_contains(filename, ft->search_buffer)) {
+
+        if (!filter) {
             ft->rows[ft->row_count++] = (FileTreeRow) {
                 .entry_type = EntryType_Dir,
                 .parent = parent,
@@ -278,7 +404,7 @@ static void filetree_remake_rows_inner(FileTree *ft, Dir *parent, U32 depth) {
 
     U8 *filename = ft->name_buffer + parent->file_names_offset;
     for (U16 file_i = 0; file_i < parent->file_count; ++file_i) {
-        if (ft->search_buffer_head == 0 || str_contains(filename, ft->search_buffer)) {
+        if (!filter || str_match(filename, ft->search_string, ft->search_flags)) {
             ft->rows[ft->row_count++] = (FileTreeRow) {
                 .entry_type = EntryType_File,
                 .parent = parent,

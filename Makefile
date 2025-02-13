@@ -11,16 +11,17 @@ PATH_FLAGS_FT := -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include
 PATH_FLAGS := $(PATH_FLAGS_FT)
 LINK_FLAGS := -lfreetype -lglfw -lvulkan -ldl -pthread -lX11 -lXxf86vm -lXrandr -lXi -lm
 
-SAN_FLAGS := -fsanitize=undefined -fsanitize=address
+#SAN_FLAGS := -fsanitize=undefined -fsanitize=address
+SAN_FLAGS := -fsanitize-trap=all
 
 export GCC_COLORS = warning=01;33
 
 build/main_frag.spv: shaders/main_frag.glsl
-	glslc -fshader-stage=frag shaders/main_frag.glsl -O -o build/main_frag.spv
-	xxd -i build/main_frag.spv build/main_frag.h
+	@glslc -fshader-stage=frag shaders/main_frag.glsl -O -o build/main_frag.spv
+	@xxd -i build/main_frag.spv build/main_frag.h
 build/main_vert.spv: shaders/main_vert.glsl
-	glslc -fshader-stage=vert shaders/main_vert.glsl -O -o build/main_vert.spv
-	xxd -i build/main_vert.spv build/main_vert.h
+	@glslc -fshader-stage=vert shaders/main_vert.glsl -O -o build/main_vert.spv
+	@xxd -i build/main_vert.spv build/main_vert.h
 
 build/edit: build/main_vert.spv build/main_frag.spv src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
@@ -31,4 +32,4 @@ san: build/main_vert.spv build/main_frag.spv src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(SAN_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
 
 clean:
-	rm -r build/*
+	@rm -r build/*

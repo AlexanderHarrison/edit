@@ -5,6 +5,7 @@
 #define _DEFAULT_SOURCE
 
 #include <math.h>
+#include <errno.h>
 #include <tools.h>
 
 typedef enum FontSize {

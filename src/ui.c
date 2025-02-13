@@ -22,10 +22,11 @@ typedef struct Panel {
     F32 dynamic_weight_h;
     PanelFn update_fn;
     PanelFn destroy_fn;
+    const char *name;
 
     // please do not modify these
-    Arena *arena;
     Rect viewport;
+    Arena *arena;
     Panel *parent;
     Panel *child;
     Panel *sibling_prev;
@@ -60,7 +61,8 @@ typedef struct UI {
     U64 op_count;
 } UI;
 
-// external
+// external --------------------------------------------------------
+
 UI     *ui_create           (W *w, FontAtlas *atlas, Arena *arena);
 void    ui_destroy          (UI *ui);
 void    ui_update           (UI *ui, Rect *viewport);
@@ -79,6 +81,8 @@ void    panel_destroy_queued       (Panel *panel);
 void    panel_add_child_queued     (Panel *parent, Panel *new);
 void    panel_insert_after_queued  (Panel *old, Panel *new);
 void    panel_insert_before_queued (Panel *old, Panel *new);
+
+// creates an arena if it doesn't exist
 Arena  *panel_arena         (Panel *panel);
 
 // returns number of glyphs written
@@ -98,7 +102,8 @@ U64 write_string(
     F32 x, F32 y, F32 max_width
 );
 
-// internal
+// internal -----------------------------------------------
+
 void    panel_set_viewport  (Panel *panel, Rect *viewport);
 void    panel_update        (Panel *panel);
 void    panel_destroy_inner (Panel *panel);
@@ -272,6 +277,9 @@ Panel *panel_create(UI *ui) { TRACE
 
 // Calls destructors for this single panel and does not detach
 void panel_destroy_single(Panel *panel) { TRACE
+    if (panel->name)
+        printf("destroyed panel '%s'\n", panel->name);
+
     if (panel->destroy_fn)
         (panel->destroy_fn)(panel);
 

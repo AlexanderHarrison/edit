@@ -1349,8 +1349,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
     VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
     window_destroy(&w);
 
-    // TODO: Why does uncommenting this cause a segfault?????
-    //arena_destroy(&static_arena);
+    arena_destroy(&static_arena);
     return 0;
 }
 
