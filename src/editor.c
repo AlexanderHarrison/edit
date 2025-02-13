@@ -773,15 +773,6 @@ void editor_update(Panel *panel) { TRACE
             .colour = COLOUR_FILE_INFO,
         };
 
-        if (panel->flags & PanelFlag_Focused) {
-            *ui_push_glyph(ui) = (Glyph) {
-                .x = mode_info_v.x,
-                .y = mode_info_v.y + CODE_LINE_SPACING,
-                .glyph_idx = special_glyph_rect((U32)mode_info_v.w, BAR_SIZE),
-                .colour = COLOUR_WHITE,
-            };
-        }
-
         if (ed->filepath) {
             U32 filepath_start = ed->filepath_length-1;
             U32 slash_count = 1;

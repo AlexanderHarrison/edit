@@ -39,7 +39,7 @@ static inline bool is(U64 held, U64 mask) {
 #define MODE_INFO_Y_OFFSET 60.f
 #define MODE_INFO_PADDING 5.f
 
-#define COLOUR_WHITE    { 230, 230, 230, 255 }
+#define COLOUR_WHITE    { 200, 200, 200, 255 }
 #define COLOUR_RED      { 230, 100, 100, 255 }
 #define COLOUR_ORANGE   { 160, 100,  20, 255 }
 #define COLOUR_GREEN    { 100, 160, 100, 255 }

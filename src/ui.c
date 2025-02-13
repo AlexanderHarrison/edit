@@ -190,6 +190,15 @@ void panel_update(Panel *panel) { TRACE
     if (panel->update_fn)
         (panel->update_fn)(panel);
 
+    if (panel->flags & PanelFlag_Focused) {
+        *ui_push_glyph(panel->ui) = (Glyph) {
+            .x = panel->viewport.x,
+            .y = panel->viewport.y + panel->viewport.h - BAR_SIZE,
+            .glyph_idx = special_glyph_rect((U32)panel->viewport.w, BAR_SIZE),
+            .colour = COLOUR_WHITE,
+        };
+    }
+
     for (Panel *child = panel->child; child; child = child->sibling_next)
         panel_update(child);
 }
@@ -208,9 +217,6 @@ Panel *panel_create(UI *ui) { TRACE
 
 // Calls destructors for this single panel and does not detach
 void panel_destroy_single(Panel *panel) { TRACE
-    if (panel->name)
-        printf("destroyed panel '%s'\n", panel->name);
-
     if (panel->destroy_fn)
         (panel->destroy_fn)(panel);
 
