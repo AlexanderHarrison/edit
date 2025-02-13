@@ -1081,7 +1081,8 @@ void editor_text_remove(Editor *ed, I64 start, I64 end) { TRACE
 
     undo_record(&ed->undo_stack, start, &ed->text[start], end - start, UndoOp_Remove);
     editor_text_remove_raw(ed, start, end);
-    ed->flags |= EditorFlag_Unsaved;
+    if (start != end)
+        ed->flags |= EditorFlag_Unsaved;
 }
 
 void editor_text_remove_raw(Editor *ed, I64 start, I64 end) { TRACE
@@ -1113,7 +1114,8 @@ void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
 
     undo_record(&ed->undo_stack, at, text, length, UndoOp_Insert);
     editor_text_insert_raw(ed, at, text, length);
-    ed->flags |= EditorFlag_Unsaved;
+    if (length != 0)
+        ed->flags |= EditorFlag_Unsaved;
 }
 
 void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE

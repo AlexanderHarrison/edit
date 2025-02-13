@@ -73,11 +73,18 @@ void ui_update(UI *ui, Rect *viewport) { TRACE
         w->should_close = true;
 
     if (ctrl && is(pressed, key_mask(GLFW_KEY_P))) {
-        if (ui->focused) {
-            Panel *new_editor = editor_create(ui, NULL);
-            panel_insert_after(ui->focused, new_editor);
-            panel_focus_queued(new_editor);
+        Panel *target = ui->focused ? ui->focused : ui->root;
+        Panel *new_editor = editor_create(ui, NULL);
+
+        if ((target->flags & PanelMode_VSplit) || (target->flags & PanelMode_HSplit)) {
+            // is layout panel
+            panel_add_child(target, new_editor);
+        } else {
+            // is data panel
+            panel_insert_after(target, new_editor);
         }
+
+        panel_focus_queued(new_editor);
     }
 
 
@@ -245,6 +252,17 @@ void panel_destroy(Panel *panel) { TRACE
 }
 
 void panel_detach(Panel *panel) { TRACE
+    if (panel->flags & PanelFlag_Focused) {
+        if (panel->sibling_next)
+            panel_focus(panel->sibling_next);
+        else if (panel->sibling_prev)
+            panel_focus(panel->sibling_prev);
+        else if (panel->parent)
+            panel_focus(panel->parent);
+        else
+            panel_focus(panel->ui->root);
+    }
+
     Panel *prev = panel->sibling_prev;
     Panel *next = panel->sibling_next;
     Panel *parent = panel->parent;
