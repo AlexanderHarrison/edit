@@ -425,11 +425,13 @@ void editor_update(Panel *panel) { TRACE
             ed->search_matches = arena_prealign(&w->frame_arena, alignof(*ed->search_matches));
             ed->search_match_count = 0;
             if (ed->mode_text_length > 0) {
-                for (I64 a = ed->selection_a; a < ed->selection_b; ++a) {
+                I64 start = ed->selection_a;
+                I64 end = ed->selection_b - ed->mode_text_length;
+                for (I64 a = start; a < end; ++a) {
                     bool matches = true;
                     for (I64 i = 0; i < ed->mode_text_length; ++i) {
                         U8 search_char = ed->mode_text[i];
-                        U8 text_char = editor_text(ed, a+i);
+                        U8 text_char = ed->text[a+i];
                         if (search_char != text_char) {
                             matches = false; 
                             break;
@@ -523,6 +525,41 @@ void editor_update(Panel *panel) { TRACE
 
     // WRITE SPECIAL GLYPHS -------------------------------------------------
 
+    // determine visible lines
+    I64 byte_visible_start;
+    I64 byte_visible_end;
+    {
+        F32 line_i = 0.f;
+        I64 a = 0;
+        while (1) {
+            F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
+            F32 line_y = line_offset_from_scroll * CODE_LINE_SPACING + text_v.h / 2.f;
+            if (line_y + CODE_LINE_SPACING > 0.f) break;
+
+            Range line = editor_group(ed, Group_Line, a);
+            if (line.end >= ed->text_length)
+                break;
+            else
+                a = line.end;
+            line_i += 1.f;
+        }
+        byte_visible_start = a;
+
+        while (1) {
+            F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
+            F32 line_y = line_offset_from_scroll * CODE_LINE_SPACING + text_v.h / 2.f;
+
+            if (line_y > text_v.h) break;
+
+            Range line = editor_group(ed, Group_Line, a);
+            a = line.end;
+            if (line.end >= ed->text_length)
+                break;
+            line_i += 1.f;
+        }
+        byte_visible_end = a;
+    }
+
     // selection group bar
     {
         RGBA8 selection_bar_colour;
@@ -557,11 +594,16 @@ void editor_update(Panel *panel) { TRACE
     if (ed->mode == Mode_Normal) {
         I64 a = ed->selection_a;
         I64 b = ed->selection_b;
+        if (a < byte_visible_start) a = byte_visible_start;
+        if (b > byte_visible_end) b = byte_visible_end;
+        F32 line_i = (F32)editor_line_index(ed, a);
 
-        F32 line_i = (F32)(editor_line_index(ed, a));
         while (1) {
-            Rect rect = editor_line_rect(ed, font_atlas, a, b, &text_v);
+            F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
+            F32 line_y = line_offset_from_scroll * CODE_LINE_SPACING + text_v.h / 2.f;
+            if (line_y > text_v.h) break;
 
+            Rect rect = editor_line_rect(ed, font_atlas, a, b, &text_v);
             *ui_push_glyph(ui) = (Glyph) {
                 .x = rect.x,
                 .y = rect.y,
@@ -570,12 +612,11 @@ void editor_update(Panel *panel) { TRACE
             };
 
             Range line = editor_group(ed, Group_Line, a);
-
-            line_i += 1.f;
             if (line.end >= b)
                 break;
             else
                 a = line.end;
+            line_i += 1.f;
         }
     }
     if (ed->mode == Mode_Insert) {
@@ -592,6 +633,10 @@ void editor_update(Panel *panel) { TRACE
     if (ed->mode == Mode_Search) {
         for (I64 i = 0; i < ed->search_match_count; ++i) {
             I64 match_idx = ed->search_matches[i];
+
+            if (match_idx < byte_visible_start) continue;
+            if (match_idx > byte_visible_end) break;
+
             Rect rect = editor_line_rect(ed, font_atlas, match_idx, match_idx + ed->mode_text_length, &text_v);
             RGBA8 colour = i != ed->search_cursor ? (RGBA8)COLOUR_SEARCH : (RGBA8)COLOUR_SEARCH_SHOWN;
 

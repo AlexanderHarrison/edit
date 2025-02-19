@@ -8,6 +8,8 @@ typedef struct Glyph {
 } Glyph;
 
 static inline U32 special_glyph_rect(U32 width, U32 height) {
+    if (width >= 4096) width = 4095;
+    if (height >= 4096) height = 4095;
     return (1u << 24) | (width << 12) | height;
 }
 
