@@ -387,7 +387,8 @@ void editor_update(Panel *panel) { TRACE
             if (is(special_pressed, special_mask(GLFW_KEY_TAB))) {
                 Range line = editor_group(ed, Group_Line, ed->insert_cursor);
                 I64 spaces = 1;
-                while ((line.end+spaces) % 4 != 0)
+                I64 idx = ed->insert_cursor - line.start;
+                while ((idx+spaces) % 4 != 0)
                     spaces++;
 
                 U8 *text = ARENA_ALLOC_ARRAY(&w->frame_arena, U8, (U64)spaces);
@@ -1157,10 +1158,11 @@ void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
     expect(length >= 0);
     expect(ed->text_length + length <= (I64)TEXT_MAX_LENGTH);
 
-    undo_record(&ed->undo_stack, at, text, length, UndoOp_Insert);
-    editor_text_insert_raw(ed, at, text, length);
-    if (length != 0)
+    if (length != 0) {
+        undo_record(&ed->undo_stack, at, text, length, UndoOp_Insert);
+        editor_text_insert_raw(ed, at, text, length);
         ed->flags |= EditorFlag_Unsaved;
+    }
 }
 
 void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
