@@ -1382,6 +1382,8 @@ void editor_undo(Editor *ed) { TRACE
             ed->selection_b = elem.at + elem.text_length;
             break;
     }
+    
+    ed->flags |= EditorFlag_Unsaved;
 }
 
 void editor_redo(Editor *ed) { TRACE
@@ -1400,6 +1402,8 @@ void editor_redo(Editor *ed) { TRACE
             editor_text_remove_raw(ed, elem.at, elem.at + (I64)elem.text_length);
             break;
     }
+    
+    ed->flags |= EditorFlag_Unsaved;
 }
 
 UndoElem *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op) { TRACE
