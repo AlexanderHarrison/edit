@@ -367,15 +367,14 @@ PanelHandle panel_handle(Panel *panel) {
     return (PanelHandle) { idx, panel->generation }; 
 }
 
-// returns number of glyphs written
-U64 write_string_terminated(
-    Glyph *glyphs,
+F32 ui_push_string_terminated(
+    UI *ui,
     const U8 *str,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_x
 ) { TRACE
-    U64 glyphs_written = 0;
+    F32 width = 0.f;
     while (1) {
         U8 ch = *str;
         if (ch == 0) break;
@@ -383,42 +382,42 @@ U64 write_string_terminated(
         U32 glyph_idx = glyph_lookup_idx(font_size, ch);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
-        if (x + info.advance_width > max_x) break;
-
-        glyphs[glyphs_written++] = (Glyph) {
-            .x = x + info.offset_x,
-            .y = y + info.offset_y,
-            .glyph_idx = glyph_idx,
-            .colour = colour,
-        };
-        x += info.advance_width;
+        if (x + width + info.advance_width <= max_x) {
+            ui->glyphs[ui->glyph_count++] = (Glyph) {
+                .x = x + width + info.offset_x,
+                .y = y + info.offset_y,
+                .glyph_idx = glyph_idx,
+                .colour = colour,
+            };
+        }
+        width += info.advance_width;
 
         str++;
     }
-    return glyphs_written;
+    return width;
 }
 
-U64 write_string(
-    Glyph *glyphs,
+F32 ui_push_string(
+    UI *ui,
     const U8 *str, U64 length,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_width
 ) { TRACE
-    U64 glyphs_written = 0;
+    F32 width = 0.f;
     for (U64 i = 0; i < length; ++i) {
         U32 glyph_idx = glyph_lookup_idx(font_size, str[i]);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
-        if (x + info.advance_width > max_width) break;
-
-        glyphs[glyphs_written++] = (Glyph) {
-            .x = x + info.offset_x,
-            .y = y + info.offset_y,
-            .glyph_idx = glyph_idx,
-            .colour = colour,
-        };
-        x += info.advance_width;
+        if (x + width + info.advance_width <= max_width) {
+            ui->glyphs[ui->glyph_count++] = (Glyph) {
+                .x = x + width + info.offset_x,
+                .y = y + info.offset_y,
+                .glyph_idx = glyph_idx,
+                .colour = colour,
+            };
+        }
+        width += info.advance_width;
     }
-    return glyphs_written;
+    return width;
 }

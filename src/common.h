@@ -49,7 +49,7 @@ U8 *copy_cstr(Arena *arena, const char *str);
 #define COLOUR_PURPLE   { 150, 50, 110, 255 }
 
 #define COLOUR_BACKGROUND           { 4, 4, 4, 255 }
-#define COLOUR_FOREGROUND           { 170, 170, 170, 255 }
+#define COLOUR_FOREGROUND           { 175, 170, 165, 255 }
 #define COLOUR_MODE_INFO            { 10, 10, 10, 200 }
 #define COLOUR_FILE_INFO            { 10, 10, 10, 255 }
 #define COLOUR_SELECT               { 30, 30, 30, 255 }

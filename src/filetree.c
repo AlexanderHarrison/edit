@@ -331,8 +331,8 @@ void filetree_update(Panel *panel) { TRACE
 
     // write root dir
     Dir *root_dir = &ft->dir_tree[0];
-    ui->glyph_count += write_string_terminated(
-        &ui->glyphs[ui->glyph_count],
+    ui_push_string_terminated(
+        ui,
         ft->name_buffer + root_dir->name_offset,
         font_atlas,
         (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
@@ -341,8 +341,8 @@ void filetree_update(Panel *panel) { TRACE
     y += CODE_LINE_SPACING;
 
     // write search buffer
-    ui->glyph_count += write_string_terminated(
-        &ui->glyphs[ui->glyph_count],
+    ui_push_string_terminated(
+        ui,
         ft->search_buffer,
         font_atlas,
         (RGBA8) COLOUR_GREEN, CODE_FONT_SIZE,
@@ -361,8 +361,8 @@ void filetree_update(Panel *panel) { TRACE
             U8 *dirname = ft->name_buffer + dir->name_offset;
 
             RGBA8 row_colour = (row->dir->flags & DirFlag_Open) ? (RGBA8) COLOUR_DIRECTORY_OPEN : (RGBA8) COLOUR_DIRECTORY_CLOSED;
-            ui->glyph_count += write_string_terminated(
-                &ui->glyphs[ui->glyph_count],
+            ui_push_string_terminated(
+                ui,
                 dirname,
                 font_atlas,
                 row_colour, CODE_FONT_SIZE,
@@ -370,8 +370,8 @@ void filetree_update(Panel *panel) { TRACE
             );
             y += CODE_LINE_SPACING;
         } else if (row->entry_type == EntryType_File) {
-            ui->glyph_count += write_string_terminated(
-                &ui->glyphs[ui->glyph_count],
+            ui_push_string_terminated(
+                ui,
                 row->filename,
                 font_atlas,
                 (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,

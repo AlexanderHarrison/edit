@@ -135,6 +135,8 @@ static SyntaxLookup syntax_lookup[] = {
     {"rs",  {countof(syntax_rs), syntax_rs}},
     {"sh",  {countof(syntax_sh), syntax_sh}},
     {"py",  {countof(syntax_py), syntax_py}},
+    {"glsl",{countof(syntax_c), syntax_c}},
+    {"hlsl",{countof(syntax_c), syntax_c}},
 };
 
 SyntaxHighlighting *syntax_for_path(const U8 *filepath, U32 filepath_len) {
@@ -413,6 +415,39 @@ void editor_update(Panel *panel) { TRACE
                 if ((ed->flags & EditorFlag_Unsaved) == 0 || shift)
                     panel_destroy_queued(panel);
             }
+            
+            // catch '<'
+            if (!ctrl && shift && is(pressed, key_mask(GLFW_KEY_COMMA))) {
+                Range line = editor_group(ed, Group_Line, ed->selection_a);
+                I64 text_start = line.start;
+                while (editor_text(ed, text_start) == ' ')
+                    text_start++;
+                
+                if (text_start > line.start) {
+                    I64 spaces_to_rm = 1;
+                    while (((text_start - line.start - spaces_to_rm) & 3) != 0)
+                        spaces_to_rm++;
+                    editor_text_remove(ed, line.start, line.start+spaces_to_rm);
+                }
+            }
+            
+            // catch '>'
+            if (!ctrl && shift && is(pressed, key_mask(GLFW_KEY_PERIOD))) {
+                Range line = editor_group(ed, Group_Line, ed->selection_a);
+                I64 text_start = line.start;
+                while (editor_text(ed, text_start) == ' ')
+                    text_start++;
+                
+                if (text_start >= line.start) {
+                    I64 spaces_to_add = 1;
+                    while (((text_start - line.start + spaces_to_add) & 3) != 0)
+                        spaces_to_add++;
+                    U8 *spaces = arena_alloc(&panel->ui->w->frame_arena, (U64)spaces_to_add, 1);
+                    memset(spaces, ' ', (U64)spaces_to_add);
+                    editor_text_insert(ed, line.start, spaces, spaces_to_add);
+                }
+            }
+            
             break;
         }
         case Mode_Insert: {
@@ -420,6 +455,7 @@ void editor_update(Panel *panel) { TRACE
             bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
             if (esc || caps) {
                 ed->mode = Mode_Normal;
+                ed->selection_group = Group_Line;
                 Range range = editor_group(ed, ed->selection_group, ed->insert_cursor);
                 ed->selection_a = range.start;
                 ed->selection_b = range.end;
@@ -554,6 +590,7 @@ void editor_update(Panel *panel) { TRACE
             bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
             bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
             if (esc || caps) {
+                ed->selection_group = Group_Line;
                 ed->mode = Mode_Normal;
             }
 
@@ -884,8 +921,8 @@ void editor_update(Panel *panel) { TRACE
 
         F32 y = mode_info_v.y + mode_info_v.h - MODE_INFO_PADDING;
         F32 x = mode_info_v.x + MODE_INFO_PADDING;
-        ui->glyph_count += write_string_terminated(
-            &ui->glyphs[ui->glyph_count],
+        ui_push_string_terminated(
+            ui,
             mode_info_text,
             font_atlas,
             colour, MODE_FONT_SIZE,
@@ -921,8 +958,8 @@ void editor_update(Panel *panel) { TRACE
             F32 descent = font_atlas->descent[CODE_FONT_SIZE];
 
             if (ed->flags & EditorFlag_Unsaved) {
-                ui->glyph_count += write_string_terminated(
-                    &ui->glyphs[ui->glyph_count],
+                ui_push_string_terminated(
+                    ui,
                     (const U8*)"[+]",
                     font_atlas,
                     (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
@@ -930,8 +967,8 @@ void editor_update(Panel *panel) { TRACE
                 );
             }
 
-            ui->glyph_count += write_string(
-                &ui->glyphs[ui->glyph_count],
+            ui_push_string(
+                ui,
                 ed->filepath + filepath_start, ed->filepath_length - filepath_start,
                 font_atlas,
                 (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,

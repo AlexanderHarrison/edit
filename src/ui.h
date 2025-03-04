@@ -90,17 +90,16 @@ PanelHandle panel_handle(Panel *panel);
 // creates an arena if it doesn't exist
 Arena  *panel_arena     (Panel *panel);
 
-// returns number of glyphs written
-U64 write_string_terminated(
-    Glyph *glyphs,
+F32 ui_push_string_terminated(
+    UI *ui,
     const U8 *str,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_width
 );
 
-U64 write_string(
-    Glyph *glyphs,
+F32 ui_push_string(
+    UI *ui,
     const U8 *str, U64 length,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
