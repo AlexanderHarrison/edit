@@ -116,29 +116,54 @@ static inline I64 clamp(I64 n, I64 low, I64 high) {
     return n;
 }
 
+typedef enum CharType {
+    Char_None = 0,
+    Char_Whitespace,
+    Char_Alphabetic,
+    Char_Numeric,
+    Char_Mathematic,
+    Char_Symbolic,
+    Char_Underscore,
+} CharType;
+
+static const U8 char_lookup[128] = {
+#include "ascii.c"
+};
+
 static inline bool char_word_like(U8 c) {
-    bool caps = ('A' <= c) & (c <= 'Z');
-    bool lower = ('a' <= c) & (c <= 'z');
-    bool num = ('0' <= c) & (c <= '9');
-    bool other = c == '_';
-    return caps | lower | num | other;
+    if (c >= 128) return false;
+    CharType type = char_lookup[c];
+    return type == Char_Alphabetic 
+        || type == Char_Numeric
+        || type == Char_Underscore;
 }
 
 static inline bool char_subword_like(U8 c) {
-    bool caps = ('A' <= c) & (c <= 'Z');
-    bool lower = ('a' <= c) & (c <= 'z');
-    bool num = ('0' <= c) & (c <= '9');
-    return caps | lower | num;
+    if (c >= 128) return false;
+    CharType type = char_lookup[c];
+    return type == Char_Alphabetic || type == Char_Numeric;
 }
 
 static inline bool char_whitespace(U8 c) {
-    return c == ' ' || c == '\t' || c == '\n';
+    if (c >= 128) return false;
+    CharType type = char_lookup[c];
+    return type == Char_Whitespace;
 }
 
-static inline bool char_symbolic(U8 c) {
-    return !char_whitespace(c) && !char_word_like(c);
+static inline bool char_mathematic(U8 c) {
+    if (c >= 128) return false;
+    CharType type = char_lookup[c];
+    return type == Char_Mathematic;
 }
 
-static inline bool char_underscore(U8 c) { return c == '_'; }
+static inline bool char_underscore(U8 c) {
+    if (c >= 128) return false;
+    return c == '_';
+}
+
+static inline bool char_none(U8 c) {
+    (void)c;
+    return false;
+}
 
 #endif

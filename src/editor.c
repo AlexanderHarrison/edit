@@ -27,10 +27,7 @@
 //   f - select entire file
 //   F - select from selection start to end of file
 // C-F - select from start of file to selection end
-//
-//   p - vsplit, adding another editor to the right
-//
-//   / - enter search mode
+//   a - enter edit mode at end of selection
 //
 // SEARCH MODE ---------------------------------------------------------
 // C-j - go to next matched item
@@ -39,6 +36,7 @@
 //
 // EDIT MODE -----------------------------------------------------------
 //   c - delete selection and enter edit mode
+//   C - trim, delete selection, and enter edit mode
 //
 //   i - enter edit mode at start of selection
 //   a - enter edit mode at end of selection
@@ -53,9 +51,15 @@
 //
 // MISC ----------------------------------------------------------------
 // C-s - save
-//   m - trim whitespace from ends of selection
 //   u - undo
 // C-r - redo
+//
+// C-p - vsplit, adding another editor to the right
+//
+//   / - enter search mode
+//
+//   < - unindent lines
+//   > - indent lines
 //
 //   q - close editor if saved
 //   Q - close editor without saving
@@ -68,6 +72,11 @@
 //   t - open file tree and recursively expand all folders
 //   T - open file tree
 
+typedef struct Indices {
+    U64 count;
+    I64 *ptr;
+} Indices;
+
 UndoStack   undo_create(Arena *arena);
 void        undo_clear(UndoStack *st);
 UndoElem   *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op);
@@ -79,6 +88,7 @@ Range       editor_group_prev(Editor *ed, Group group, I64 current_group_start);
 I64         editor_line_index(Editor *ed, I64 byte);
 Rect        editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v);
 void        editor_selection_trim(Editor *ed);
+Indices     editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end);
 
 void        editor_undo(Editor *ed);
 void        editor_redo(Editor *ed);
@@ -244,19 +254,11 @@ void editor_update(Panel *panel) { TRACE
             if (ctrl && !shift && is(pressed | repeating, key_mask(GLFW_KEY_R)))
                 editor_redo(ed);
 
-            if (is(pressed, key_mask(GLFW_KEY_H))) {
-                if (shift)
-                    ed->selection_group = Group_Line;
-                else
-                    editor_group_expand(ed);
-            }
+            if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_H)))
+                editor_group_expand(ed);
 
-            if (is(pressed, key_mask(GLFW_KEY_L))) {
-                if (shift)
-                    ed->selection_group = Group_Character;
-                else
-                    editor_group_contract(ed);
-            }
+            if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_L)))
+                editor_group_contract(ed);
 
             if (ctrl && is(pressed, key_mask(GLFW_KEY_S))) {
                 if (ed->filepath && (ed->flags & EditorFlag_Unsaved) != 0) {
@@ -388,6 +390,8 @@ void editor_update(Panel *panel) { TRACE
             if (is(pressed, key_mask(GLFW_KEY_SLASH))) {
                 ed->mode = Mode_Search;
                 ed->mode_text_length = 0;
+                ed->search_match_count = 0;
+                ed->search_cursor = 0;
             }
 
             if (!ctrl && is(pressed, key_mask(GLFW_KEY_P))) {
@@ -416,35 +420,41 @@ void editor_update(Panel *panel) { TRACE
                     panel_destroy_queued(panel);
             }
             
-            // catch '<'
+            // '<' - dedent selected lines 
             if (!ctrl && shift && is(pressed, key_mask(GLFW_KEY_COMMA))) {
-                Range line = editor_group(ed, Group_Line, ed->selection_a);
-                I64 text_start = line.start;
-                while (editor_text(ed, text_start) == ' ')
-                    text_start++;
-                
-                if (text_start > line.start) {
-                    I64 spaces_to_rm = 1;
-                    while (((text_start - line.start - spaces_to_rm) & 3) != 0)
-                        spaces_to_rm++;
-                    editor_text_remove(ed, line.start, line.start+spaces_to_rm);
+                Indices lines = editor_find_lines(ed, &w->frame_arena, ed->selection_a, ed->selection_b);
+                for (U64 i = lines.count; i > 0; --i) {
+                    I64 line_start = lines.ptr[i-1];
+                    I64 text_start = line_start;
+                    while (editor_text(ed, text_start) == ' ')
+                        text_start++;
+                        
+                    if (text_start != line_start) {
+                        I64 spaces_to_rm = 1;
+                        while (((text_start - line_start - spaces_to_rm) & 3) != 0)
+                            spaces_to_rm++;
+                        editor_text_remove(ed, line_start, line_start+spaces_to_rm);
+                    }
                 }
             }
             
-            // catch '>'
+            // '>' - indent selected lines 
             if (!ctrl && shift && is(pressed, key_mask(GLFW_KEY_PERIOD))) {
-                Range line = editor_group(ed, Group_Line, ed->selection_a);
-                I64 text_start = line.start;
-                while (editor_text(ed, text_start) == ' ')
-                    text_start++;
+                U8 *spaces = arena_alloc(&panel->ui->w->frame_arena, 4, 1);
+                memset(spaces, ' ', 4);
                 
-                if (text_start >= line.start) {
+                Indices lines = editor_find_lines(ed, &w->frame_arena, ed->selection_a, ed->selection_b);
+                for (U64 i = lines.count; i > 0; --i) {
+                    I64 line_start = lines.ptr[i-1];
+                    I64 text_start = line_start;
+                    while (editor_text(ed, text_start) == ' ')
+                        text_start++;
+                        
                     I64 spaces_to_add = 1;
-                    while (((text_start - line.start + spaces_to_add) & 3) != 0)
+                    while (((text_start - line_start + spaces_to_add) & 3) != 0)
                         spaces_to_add++;
-                    U8 *spaces = arena_alloc(&panel->ui->w->frame_arena, (U64)spaces_to_add, 1);
-                    memset(spaces, ' ', (U64)spaces_to_add);
-                    editor_text_insert(ed, line.start, spaces, spaces_to_add);
+                    expect(spaces_to_add <= 4);
+                    editor_text_insert(ed, line_start, spaces, spaces_to_add);
                 }
             }
             
@@ -491,12 +501,6 @@ void editor_update(Panel *panel) { TRACE
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_RIGHT)))
                 ed->insert_cursor++;
 
-            if (ctrl && is(pressed | repeating, key_mask(GLFW_KEY_W))) {
-                Range word = editor_group(ed, Group_SubWord, ed->insert_cursor);
-                editor_text_remove(ed, word.start, ed->insert_cursor);
-                ed->insert_cursor = word.start;
-            }
-
             if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) {
                 Range line = editor_group(ed, Group_Line, ed->insert_cursor);
                 I64 indent = 0;
@@ -528,8 +532,14 @@ void editor_update(Panel *panel) { TRACE
             }
 
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
-                ed->insert_cursor -= 1;
-                editor_text_remove(ed, ed->insert_cursor, ed->insert_cursor+1);
+                if (ctrl) {
+                    Range word = editor_group(ed, Group_SubWord, ed->insert_cursor);
+                    editor_text_remove(ed, word.start, ed->insert_cursor);
+                    ed->insert_cursor = word.start;
+                } else {
+                    ed->insert_cursor -= 1;
+                    editor_text_remove(ed, ed->insert_cursor, ed->insert_cursor+1);
+                }
             }
 
             break;
@@ -928,53 +938,69 @@ void editor_update(Panel *panel) { TRACE
             colour, MODE_FONT_SIZE,
             x, y, mode_info_v.w - mode_info_v.x - MODE_INFO_PADDING*2.f
         );
-    } else if (ed->mode == Mode_Normal) {
-        Rect mode_info_v = (Rect) {
-            .x = text_v.x,
-            .y = text_v.y + text_v.h - CODE_LINE_SPACING - BAR_SIZE,
-            .w = text_v.w,
-            .h = CODE_LINE_SPACING + BAR_SIZE,
-        };
+    } 
+    
+    Rect mode_info_v = (Rect) {
+        .x = text_v.x,
+        .y = text_v.y + text_v.h - CODE_LINE_SPACING - BAR_SIZE,
+        .w = text_v.w,
+        .h = CODE_LINE_SPACING + BAR_SIZE,
+    };
 
-        *ui_push_glyph(ui) = (Glyph) {
-            .x = mode_info_v.x,
-            .y = mode_info_v.y,
-            .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
-            .colour = COLOUR_FILE_INFO,
-        };
+    *ui_push_glyph(ui) = (Glyph) {
+        .x = mode_info_v.x,
+        .y = mode_info_v.y,
+        .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
+        .colour = COLOUR_FILE_INFO,
+    };
 
-        if (ed->filepath) {
-            U32 filepath_start = ed->filepath_length-1;
-            U32 slash_count = 1;
-            while (1) {
-                if (filepath_start == 0) break;
-                if (ed->filepath[filepath_start-1] == '/') {
-                    if (slash_count == 0) break;
-                    slash_count--;
-                }
-                filepath_start--;
+    if (ed->filepath) {
+        U32 filepath_start = ed->filepath_length-1;
+        U32 slash_count = 1;
+        while (1) {
+            if (filepath_start == 0) break;
+            if (ed->filepath[filepath_start-1] == '/') {
+                if (slash_count == 0) break;
+                slash_count--;
             }
-
-            F32 descent = font_atlas->descent[CODE_FONT_SIZE];
-
-            if (ed->flags & EditorFlag_Unsaved) {
-                ui_push_string_terminated(
-                    ui,
-                    (const U8*)"[+]",
-                    font_atlas,
-                    (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
-                    mode_info_v.x, mode_info_v.y + CODE_LINE_SPACING + descent, mode_info_v.w
-                );
-            }
-
-            ui_push_string(
-                ui,
-                ed->filepath + filepath_start, ed->filepath_length - filepath_start,
-                font_atlas,
-                (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
-                mode_info_v.x + 30.f, mode_info_v.y + CODE_LINE_SPACING + descent, mode_info_v.w
-            );
+            filepath_start--;
         }
+
+        F32 descent = font_atlas->descent[CODE_FONT_SIZE];
+        F32 status_x = mode_info_v.x;
+        F32 status_y = mode_info_v.y + descent + CODE_LINE_SPACING;
+        F32 status_max_x = status_x + mode_info_v.w;
+        
+        if (ed->flags & EditorFlag_Unsaved) {
+            status_x += ui_push_string_terminated(
+                ui,
+                (const U8*)"[+]",
+                font_atlas,
+                (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
+                status_x, status_y, status_max_x
+            );
+            status_x += 10.f;
+        }
+
+        I64 line_i = editor_line_index(ed, ed->selection_b);
+        U8 *line_str = w->frame_arena.head;
+        U64 line_str_len = int_to_string(&w->frame_arena, line_i);
+        status_x += ui_push_string(
+            ui,
+            line_str, line_str_len,
+            font_atlas,
+            (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
+            status_x, status_y, status_max_x
+        );
+        status_x += 10.f; 
+
+        status_x += ui_push_string(
+            ui,
+            ed->filepath + filepath_start, ed->filepath_length - filepath_start,
+            font_atlas,
+            (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
+            status_x, status_y, status_max_x
+        );
     }
 }
 
@@ -1138,26 +1164,6 @@ Range editor_group_range_line(Editor *ed, I64 byte) { TRACE
     return (Range) { start, end };
 }
 
-//Range editor_group_range_word(Editor *ed, I64 byte) {
-//    // not much we can do here
-//    if (byte < 0) byte = 0;
-//    if (byte >= ed->text_length) byte = ed->text_length-1;
-//
-//    I64 start = byte;
-//    while (char_whitespace(editor_text(ed, start)))
-//        start--;
-//    while (!char_whitespace(editor_text(ed, start-1)))
-//        start--;
-//
-//    I64 end = byte;
-//    while (!char_whitespace(editor_text(ed, end)))
-//        end++;
-//    while (char_whitespace(editor_text(ed, end)))
-//        end++;
-//
-//    return (Range) { start, end };
-//}
-
 Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
     // not much we can do here
     if (byte < 0) byte = 0;
@@ -1167,20 +1173,23 @@ Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
     while (start > 0 && char_whitespace(editor_text(ed, start)))
         start--;
 
+    U8 c = editor_text(ed, start);
     bool (*char_fn)(U8 c);
-    if (char_word_like(editor_text(ed, start))) {
+    if (char_word_like(c)) {
         char_fn = char_word_like;
+    } else if (char_mathematic(c)) {
+        char_fn = char_mathematic;
     } else {
-        char_fn = char_symbolic;
+        char_fn = char_none;
     }
 
     while (start > 0 && char_fn(editor_text(ed, start-1)))
         start--;
 
-    I64 end = byte;
-    while (end < ed->text_length && char_fn(editor_text(ed, end)))
+    I64 end = byte+1;
+    while (char_fn(editor_text(ed, end)))
         end++;
-    while (end < ed->text_length && char_whitespace(editor_text(ed, end)))
+    while (char_whitespace(editor_text(ed, end)))
         end++;
 
     return (Range) { start, end };
@@ -1196,18 +1205,19 @@ Range editor_group_range_subword(Editor *ed, I64 byte) { TRACE
         start--;
 
     bool (*char_fn)(U8 c);
-    U8 ch = editor_text(ed, start);
-
-    if (char_subword_like(ch)) {
+    U8 c = editor_text(ed, start);
+    if (char_subword_like(c)) {
         char_fn = char_subword_like;
+    } else if (char_mathematic(c)) {
+        char_fn = char_mathematic;
     } else {
-        char_fn = char_symbolic;
+        char_fn = char_none;
     }
 
     while (start > 0 && char_fn(editor_text(ed, start-1)))
         start--;
 
-    I64 end = byte;
+    I64 end = byte+1;
     while (end < ed->text_length && char_fn(editor_text(ed, end)))
         end++;
     while (end < ed->text_length && (char_whitespace(editor_text(ed, end)) || editor_text(ed, end) == '_'))
@@ -1443,4 +1453,27 @@ static U64 int_to_string(Arena *arena, I64 n) {
     }
 
     return digit_count;
+}
+
+Indices editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end) {
+    Indices indices = {
+        .count = 0,
+        .ptr = arena_prealign(arena, alignof(I64)),
+    };
+    
+    while (editor_text(ed, start-1) != '\n')
+        start--;
+        
+    while (1) {
+        if (editor_text(ed, start-1) == '\n') {
+            *(I64*)arena_alloc(arena, sizeof(I64), alignof(I64)) = start;
+            indices.count++;
+        }
+            
+        start++;
+        if (start >= end)
+            break;
+    }
+    
+    return indices;
 }
