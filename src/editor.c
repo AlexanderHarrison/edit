@@ -661,7 +661,7 @@ void editor_update(Panel *panel) { TRACE
 
     Rect text_v = selection_bar_v;
     text_v.x += selection_bar_v.w;
-    text_v.w = viewport->w - text_v.x;
+    text_v.w = viewport->x + viewport->w - text_v.x;
 
     // WRITE SPECIAL GLYPHS -------------------------------------------------
 
@@ -936,71 +936,73 @@ void editor_update(Panel *panel) { TRACE
             mode_info_text,
             font_atlas,
             colour, MODE_FONT_SIZE,
-            x, y, mode_info_v.w - mode_info_v.x - MODE_INFO_PADDING*2.f
+            x, y, mode_info_v.x + mode_info_v.w
         );
-    } 
+    }
     
-    Rect mode_info_v = (Rect) {
-        .x = text_v.x,
-        .y = text_v.y + text_v.h - CODE_LINE_SPACING - BAR_SIZE,
-        .w = text_v.w,
-        .h = CODE_LINE_SPACING + BAR_SIZE,
-    };
-
-    *ui_push_glyph(ui) = (Glyph) {
-        .x = mode_info_v.x,
-        .y = mode_info_v.y,
-        .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
-        .colour = COLOUR_FILE_INFO,
-    };
-
-    if (ed->filepath) {
-        U32 filepath_start = ed->filepath_length-1;
-        U32 slash_count = 1;
-        while (1) {
-            if (filepath_start == 0) break;
-            if (ed->filepath[filepath_start-1] == '/') {
-                if (slash_count == 0) break;
-                slash_count--;
+    {
+        Rect mode_info_v = (Rect) {
+            .x = text_v.x,
+            .y = text_v.y + text_v.h - CODE_LINE_SPACING - BAR_SIZE,
+            .w = text_v.w,
+            .h = CODE_LINE_SPACING + BAR_SIZE,
+        };
+    
+        *ui_push_glyph(ui) = (Glyph) {
+            .x = mode_info_v.x,
+            .y = mode_info_v.y,
+            .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
+            .colour = COLOUR_FILE_INFO,
+        };
+    
+        if (ed->filepath) {
+            U32 filepath_start = ed->filepath_length-1;
+            U32 slash_count = 1;
+            while (1) {
+                if (filepath_start == 0) break;
+                if (ed->filepath[filepath_start-1] == '/') {
+                    if (slash_count == 0) break;
+                    slash_count--;
+                }
+                filepath_start--;
             }
-            filepath_start--;
-        }
-
-        F32 descent = font_atlas->descent[CODE_FONT_SIZE];
-        F32 status_x = mode_info_v.x;
-        F32 status_y = mode_info_v.y + descent + CODE_LINE_SPACING;
-        F32 status_max_x = status_x + mode_info_v.w;
-        
-        if (ed->flags & EditorFlag_Unsaved) {
-            status_x += ui_push_string_terminated(
+    
+            F32 descent = font_atlas->descent[CODE_FONT_SIZE];
+            F32 status_x = mode_info_v.x;
+            F32 status_y = mode_info_v.y + descent + CODE_LINE_SPACING;
+            F32 status_max_x = status_x + mode_info_v.w;
+            
+            if (ed->flags & EditorFlag_Unsaved) {
+                status_x += ui_push_string_terminated(
+                    ui,
+                    (const U8*)"[+]",
+                    font_atlas,
+                    (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
+                    status_x, status_y, status_max_x
+                );
+                status_x += 10.f;
+            }
+    
+            I64 line_i = editor_line_index(ed, ed->selection_b);
+            U8 *line_str = w->frame_arena.head;
+            U64 line_str_len = int_to_string(&w->frame_arena, line_i);
+            status_x += ui_push_string(
                 ui,
-                (const U8*)"[+]",
+                line_str, line_str_len,
                 font_atlas,
-                (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
+                (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
                 status_x, status_y, status_max_x
             );
-            status_x += 10.f;
+            status_x += 10.f; 
+
+            status_x += ui_push_string(
+                ui,
+                ed->filepath + filepath_start, ed->filepath_length - filepath_start,
+                font_atlas,
+                (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
+                status_x, status_y, status_max_x
+            );
         }
-
-        I64 line_i = editor_line_index(ed, ed->selection_b);
-        U8 *line_str = w->frame_arena.head;
-        U64 line_str_len = int_to_string(&w->frame_arena, line_i);
-        status_x += ui_push_string(
-            ui,
-            line_str, line_str_len,
-            font_atlas,
-            (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
-            status_x, status_y, status_max_x
-        );
-        status_x += 10.f; 
-
-        status_x += ui_push_string(
-            ui,
-            ed->filepath + filepath_start, ed->filepath_length - filepath_start,
-            font_atlas,
-            (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
-            status_x, status_y, status_max_x
-        );
     }
 }
 

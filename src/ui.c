@@ -402,14 +402,14 @@ F32 ui_push_string(
     const U8 *str, U64 length,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
-    F32 x, F32 y, F32 max_width
+    F32 x, F32 y, F32 max_x
 ) { TRACE
     F32 width = 0.f;
     for (U64 i = 0; i < length; ++i) {
         U32 glyph_idx = glyph_lookup_idx(font_size, str[i]);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
-        if (x + width + info.advance_width <= max_width) {
+        if (x + width + info.advance_width <= max_x) {
             ui->glyphs[ui->glyph_count++] = (Glyph) {
                 .x = x + width + info.offset_x,
                 .y = y + info.offset_y,
