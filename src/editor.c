@@ -83,6 +83,7 @@ void        editor_selection_trim(Editor *ed);
 void        editor_undo(Editor *ed);
 void        editor_redo(Editor *ed);
 static inline U8 editor_text(Editor *ed, I64 byte);
+void        editor_open_filetree(Panel *ed_panel, bool expand);
 void        editor_text_remove(Editor *ed, I64 start, I64 end);
 void        editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
 // same as above, but does not add to the undo stack
@@ -93,6 +94,83 @@ static U64 int_to_string(Arena *arena, I64 n);
 
 // EDITOR ####################################################################
 
+#define SYNTAX_COMMENT_SLASHES { {'/', '/'}, {'\n'}, 0, COLOUR_COMMENT }
+#define SYNTAX_COMMENT_HASHTAG { {'#'}, {'\n'}, 0, COLOUR_COMMENT }
+#define SYNTAX_STRING_DOUBLE_QUOTES { {'"'}, {'"'}, '\\', COLOUR_STRING }
+#define SYNTAX_STRING_SINGLE_QUOTES { {'\''}, {'\''}, '\\', COLOUR_STRING }
+
+static SyntaxGroup syntax_c[] = {
+    SYNTAX_COMMENT_SLASHES,
+    SYNTAX_STRING_DOUBLE_QUOTES,
+    SYNTAX_STRING_SINGLE_QUOTES,
+};
+
+static SyntaxGroup syntax_rs[] = {
+    SYNTAX_COMMENT_SLASHES,
+    SYNTAX_STRING_DOUBLE_QUOTES,
+};
+
+static SyntaxGroup syntax_sh[] = {
+    SYNTAX_COMMENT_HASHTAG,
+    SYNTAX_STRING_DOUBLE_QUOTES,
+    SYNTAX_STRING_SINGLE_QUOTES,
+};
+
+static SyntaxGroup syntax_py[] = {
+    SYNTAX_COMMENT_HASHTAG,
+    SYNTAX_STRING_DOUBLE_QUOTES,
+    SYNTAX_STRING_SINGLE_QUOTES,
+};
+
+typedef struct SyntaxLookup {
+    char extension[8];
+    SyntaxHighlighting syntax;
+} SyntaxLookup;
+
+static SyntaxLookup syntax_lookup[] = {
+    {"c",   {countof(syntax_c), syntax_c}},
+    {"h",   {countof(syntax_c), syntax_c}},
+    {"cpp", {countof(syntax_c), syntax_c}},
+    {"hpp", {countof(syntax_c), syntax_c}},
+    {"rs",  {countof(syntax_rs), syntax_rs}},
+    {"sh",  {countof(syntax_sh), syntax_sh}},
+    {"py",  {countof(syntax_py), syntax_py}},
+};
+
+SyntaxHighlighting *syntax_for_path(const U8 *filepath, U32 filepath_len) {
+    // find extension
+    U32 ex_i = 0;
+    {
+        bool ex_found = false;
+        for (U32 i = 0; i < filepath_len; ++i) {
+            if (filepath[i] == '.') {
+                ex_i = i;
+                ex_found = true;
+            }
+        }
+        if (ex_found == false) return NULL;
+    }
+    
+    // copy extension to buffer
+    U8 ex[8] = {0};
+    {
+        U32 ex_len = filepath_len - ex_i - 1;
+        if (ex_len > sizeof(ex))
+            return NULL;
+            
+        for (U32 i = 0; i < ex_len; ++i)
+            ex[i] = filepath[ex_i + i + 1];
+    }
+
+    for (U64 i = 0; i < countof(syntax_lookup); ++i) {
+        SyntaxLookup *lookup = &syntax_lookup[i];
+        if (memcmp(ex, lookup->extension, sizeof(ex)) == 0)
+            return &lookup->syntax;
+    }
+    
+    return NULL;
+}
+
 Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
     Panel *panel = panel_create(ui);
     panel->update_fn = editor_update;
@@ -102,7 +180,6 @@ Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
     *ed = (Editor) {
         .undo_stack = undo_create(arena),
         .selection_group = Group_Line,
-        .copied_text = arena_alloc(arena, COPY_MAX_LENGTH, 16),
         .mode_text = arena_alloc(arena, MODE_TEXT_MAX_LENGTH, 16),
         .text = arena_alloc(arena, TEXT_MAX_LENGTH, page_size()),
     };
@@ -275,10 +352,14 @@ void editor_update(Panel *panel) { TRACE
             if (is(pressed, key_mask(GLFW_KEY_Y))) {
                 I64 copy_start = clamp(ed->selection_a, 0, ed->text_length);
                 I64 copy_end = clamp(ed->selection_b, 0, ed->text_length);
-                U32 copy_length = (U32)clamp(copy_end - copy_start, 0, COPY_MAX_LENGTH);
-
-                ed->copied_text_length = copy_length;
-                memcpy(ed->copied_text, &ed->text[copy_start], copy_length);
+                I64 copy_length_signed = copy_end - copy_start;
+                if (copy_length_signed > 0) {
+                    U32 copy_length = (U32)copy_length_signed;
+                    char *copied = arena_alloc(&panel->ui->w->frame_arena, copy_length+1, 1);
+                    memcpy(copied, &ed->text[copy_start], copy_length);
+                    copied[copy_length] = 0;
+                    glfwSetClipboardString(NULL, copied);
+                }
             }
 
             if (is(pressed, key_mask(GLFW_KEY_F))) {
@@ -308,28 +389,19 @@ void editor_update(Panel *panel) { TRACE
             }
 
             if (!ctrl && is(pressed, key_mask(GLFW_KEY_P))) {
-                I64 paste_idx;
-                if (shift) {
-                    paste_idx = ed->selection_a;
-                } else {
-                    paste_idx = ed->selection_b;
-                }
-
-                editor_text_insert(ed, paste_idx, ed->copied_text, ed->copied_text_length);
-                ed->selection_a = paste_idx;
-                ed->selection_b = paste_idx + ed->copied_text_length;
-            }
-
-            if (is(pressed, key_mask(GLFW_KEY_T))) {
-                Panel *filetree_panel = filetree_create(panel->ui, panel, NULL);
-                panel_insert_before_queued(panel, filetree_panel);
-                panel_focus_queued(filetree_panel);
-
-                if (!shift) {
-                    FileTree *ft = filetree_panel->data;
-                    filetree_dir_open_all(ft, &w->frame_arena, ft->dir_tree);
+                I64 paste_idx = shift ? ed->selection_a : ed->selection_b;
+                const char *text = glfwGetClipboardString(NULL);
+                if (text != NULL) {
+                    U8 *text_owned = copy_cstr(&panel->ui->w->frame_arena, text);
+                    U32 len = (U32)strlen(text);
+                    editor_text_insert(ed, paste_idx, text_owned, len);
+                    ed->selection_a = paste_idx;
+                    ed->selection_b = paste_idx + len;
                 }
             }
+
+            if (is(pressed, key_mask(GLFW_KEY_T)))
+                editor_open_filetree(panel, !shift);
 
             //if (is(pressed, key_mask(GLFW_KEY_K))) ed->scroll_y -= 1.f;
             //else if (is(repeating, key_mask(GLFW_KEY_K))) ed->scroll_y -= CODE_SCROLL_SPEED_SLOW;
@@ -362,6 +434,26 @@ void editor_update(Panel *panel) { TRACE
                 editor_text_insert(ed, ed->insert_cursor, &codepoint_as_char, 1);
                 ed->insert_cursor += 1;
             }
+
+            bool up = is(special_pressed | special_repeating, special_mask(GLFW_KEY_UP));
+            bool down = is(special_pressed | special_repeating, special_mask(GLFW_KEY_DOWN));
+            if (up || down) {
+                Range cur_line = editor_group(ed, Group_Line, ed->insert_cursor);
+                I64 idx_in_line = ed->insert_cursor - cur_line.start;
+
+                Range target_line = cur_line;
+                if (up) target_line = editor_group(ed, Group_Line, cur_line.start-1);
+                if (down) target_line = editor_group(ed, Group_Line, cur_line.end);
+
+                ed->insert_cursor = target_line.start + idx_in_line;
+                if (ed->insert_cursor > target_line.end)
+                    ed->insert_cursor = target_line.end-1;
+            }
+
+            if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_LEFT)))
+                ed->insert_cursor--;
+            if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_RIGHT)))
+                ed->insert_cursor++;
 
             if (ctrl && is(pressed | repeating, key_mask(GLFW_KEY_W))) {
                 Range word = editor_group(ed, Group_SubWord, ed->insert_cursor);
@@ -658,73 +750,68 @@ void editor_update(Panel *panel) { TRACE
     I64 text_length = ed->text_length;
     F32 line = 0.f;
     F32 pen_x = 0.f;
-
-    enum StateFlags {
-        State_Normal,
-        State_LineComment,
-        State_BlockComment,
-        State_String_DoubleQ,
-        State_String_SingleQ,
-        State_String_End,
-
-        State_Count
-    };
-
-    static const RGBA8 state_colours[State_Count] = {
-        COLOUR_FOREGROUND,
-        COLOUR_COMMENT,
-        COLOUR_COMMENT,
-        COLOUR_STRING,
-        COLOUR_STRING,
-        COLOUR_STRING
-    };
-
-    U64 state = State_Normal;
+    
+    SyntaxGroup *current_syntax_group = NULL;
+    
     FontSize font_size = CODE_FONT_SIZE;
     F32 spacing = CODE_LINE_SPACING;
+    
     for (I64 i = 0; i < text_length; ++i) {
-        U8 ch_prev = editor_text(ed, i-1);
-        U8 ch = editor_text(ed, i);
-        U8 ch_next = editor_text(ed, i+1);
+        U8 ch = ed->text[i];
+        
+        // compute syntax highlighting
+        RGBA8 text_colour;
+        if (current_syntax_group == NULL) {
+            U8 ch_next = editor_text(ed, i+1);
+            
+            U64 group_count = ed->syntax.group_count; 
+            for (U64 j = 0; j < group_count; ++j) {
+                SyntaxGroup *group = &ed->syntax.groups[j];
+                U8 *start_chars = group->start_chars;
+                bool match_0 = start_chars[0] == ch;
+                bool match_1 = start_chars[1] == 0 || start_chars[1] == ch_next;
+                
+                if (match_0 & match_1) {
+                    current_syntax_group = group;
+                    break;
+                }
+            }
+            
+            text_colour = current_syntax_group ? current_syntax_group->colour : (RGBA8) COLOUR_FOREGROUND;
+        } else {
+            text_colour = current_syntax_group ? current_syntax_group->colour : (RGBA8) COLOUR_FOREGROUND;
+            
+            U8 ch_prev = editor_text(ed, i-1);
+            U8 *end_chars = current_syntax_group->end_chars;
+            bool end;
+            I64 end_count;
+            if (end_chars[1] == 0) {
+                end = end_chars[0] == ch;
+                end_count = 1;
+            } else {
+                end = end_chars[0] == ch_prev && end_chars[1] == ch;
+                end_count = 2;
+            }
+            
+            // If there are an even number of escape characters before
+            // the end characters, then they all escape each other. Otherwise,
+            // the first end character is escaped, and we do not end this group.
+            U8 escape = current_syntax_group->escape;
+            if (end && escape != 0) {
+                I64 escape_count = 0;
+                while (editor_text(ed, i-end_count-escape_count) == escape)
+                    escape_count++;
+                end &= (escape_count & 1) == 0; 
+            }
+            
+            if (end)
+                current_syntax_group = NULL;
+        }
 
         if (ch == '\n') {
             line += 1.f;
             pen_x = 0.f;
-            
-            if (state == State_LineComment)
-                state = State_Normal;
-
             continue;
-        }
-
-        if (state == State_String_End) {
-            state = State_Normal;
-        }
-
-        if (state == State_Normal) {
-            if (ch == '/' && ch_next == '/') {
-                state = State_LineComment;
-            } else if (ch == '/' && ch_next == '*') {
-                state = State_BlockComment;
-            } else if (ch == '\"') {
-                state = State_String_DoubleQ;
-            } else if (ch == '\'') {
-                state = State_String_SingleQ;
-            }
-        } else if (state == State_BlockComment) {
-            if (ch == '*' && ch_next == '/') {
-                state = State_Normal;
-            }
-        } else if (state == State_String_DoubleQ) {
-            U8 ch_prev2 = editor_text(ed, i-2);
-            if (ch == '\"' && (ch_prev != '\\' || ch_prev2 == '\\')) {
-                state = State_String_End;
-            }
-        } else if (state == State_String_SingleQ) {
-            U8 ch_prev2 = editor_text(ed, i-2);
-            if (ch == '\'' && (ch_prev != '\\' || ch_prev2 == '\\')) {
-                state = State_String_End;
-            }
         }
 
         // bounds checking -----
@@ -747,7 +834,7 @@ void editor_update(Panel *panel) { TRACE
                 .x = text_v.x + pen_x + info.offset_x,
                 .y = text_v.y + pen_y + info.offset_y,
                 .glyph_idx = glyph_idx,
-                .colour = state_colours[state],
+                .colour = text_colour,
             };
         }
         pen_x += info.advance_width;
@@ -854,6 +941,16 @@ void editor_update(Panel *panel) { TRACE
     }
 }
 
+void editor_open_filetree(Panel *ed_panel, bool expand) {
+    Panel *filetree_panel = filetree_create(ed_panel, NULL);
+    panel_insert_before_queued(ed_panel, filetree_panel);
+    panel_focus_queued(filetree_panel);
+    if (expand) {
+        FileTree *ft = filetree_panel->data;
+        filetree_dir_open_all(ft, &ed_panel->ui->w->frame_arena, ft->dir_tree);
+    }
+}
+
 // the returned rect will run from a, until b or the end of the line, whichever is shortest.
 Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v) { TRACE
     Range line = editor_group(ed, Group_Line, a);
@@ -934,6 +1031,7 @@ int editor_load_filepath(Editor *ed, const U8 *filepath) { TRACE
     memcpy(arena_filepath, filepath, filepath_length+1);
 
     editor_clear_file(ed);
+    undo_clear(&ed->undo_stack);
 
     I64 size = read_file_to_buffer(ed->text, TEXT_MAX_LENGTH, filepath);
     if (size >= 0) {
@@ -952,6 +1050,9 @@ int editor_load_filepath(Editor *ed, const U8 *filepath) { TRACE
     ed->selection_group = Group_Line;
     ed->selection_a = 0;
     ed->selection_b = editor_group(ed, Group_Line, 0).end;
+    
+    SyntaxHighlighting *syntax = syntax_for_path(arena_filepath, filepath_length);
+    ed->syntax = syntax ? *syntax : (SyntaxHighlighting){0};
 
     return 0;
 }

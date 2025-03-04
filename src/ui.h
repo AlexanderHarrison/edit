@@ -1,8 +1,6 @@
 typedef struct Panel Panel;
 typedef struct UI UI;
 
-// TODO switch to handles
-
 enum PanelFlags {
     PanelMode_VSplit = (1u << 0),
     PanelMode_HSplit = (1u << 1),
@@ -12,6 +10,11 @@ enum PanelFlags {
 };
 
 typedef void (*PanelFn)(Panel *panel);
+
+typedef struct PanelHandle {
+    U32 idx;
+    U32 generation;
+} PanelHandle;
 
 typedef struct Panel {
     // modify these
@@ -32,6 +35,7 @@ typedef struct Panel {
     Panel *sibling_prev;
     Panel *sibling_next;
     U32 flags;
+    U32 generation;
     UI *ui;
 } Panel;
 
@@ -80,8 +84,11 @@ void    panel_add_child_queued     (Panel *parent, Panel *new);
 void    panel_insert_after_queued  (Panel *old, Panel *new);
 void    panel_insert_before_queued (Panel *old, Panel *new);
 
+Panel      *panel_lookup(UI *ui, PanelHandle handle);
+PanelHandle panel_handle(Panel *panel);
+
 // creates an arena if it doesn't exist
-Arena  *panel_arena         (Panel *panel);
+Arena  *panel_arena     (Panel *panel);
 
 // returns number of glyphs written
 U64 write_string_terminated(

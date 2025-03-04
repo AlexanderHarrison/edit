@@ -58,13 +58,24 @@ enum EditorFlags {
     EditorFlag_Unsaved = (1ul << 0ul),
 };
 
+typedef struct SyntaxGroup {
+    U8 start_chars[2];
+    U8 end_chars[2];
+    U8 escape;
+    RGBA8 colour;
+} SyntaxGroup;
+
+typedef struct SyntaxHighlighting {
+    U64 group_count;
+    SyntaxGroup *groups;
+} SyntaxHighlighting;
+
 typedef struct Editor {
     Arena *arena;
     UndoStack undo_stack;
-    U8 *copied_text;
     U8 *filepath;
-    U32 copied_text_length;
     U32 filepath_length;
+    SyntaxHighlighting syntax;
     F32 scroll_y;
     U32 flags;
 
@@ -80,6 +91,7 @@ typedef struct Editor {
     U8 *mode_text;
     I64 mode_text_length;
     I64 insert_cursor;
+    I64 vertical_movement_base;
     I64 *search_matches;
     I64 search_match_count;
     I64 search_cursor;

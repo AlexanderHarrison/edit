@@ -213,11 +213,13 @@ void panel_update(Panel *panel) { TRACE
 Panel *panel_create(UI *ui) { TRACE
     Panel *panel = ui->free;
     ui->free = panel->sibling_next ? panel->sibling_next : panel + 1;
+    U32 generation = panel->generation + 1;
     *panel = (Panel) {
         .dynamic_weight_w = 1.f,
         .dynamic_weight_h = 1.f,
         .ui = ui,
         .flags = PanelFlag_InUse,
+        .generation = generation, 
     };
     return panel;
 }
@@ -231,7 +233,8 @@ void panel_destroy_single(Panel *panel) { TRACE
         arena_destroy(panel->arena);
 
     UI *ui = panel->ui;
-    *panel = (Panel) { .sibling_next = ui->free };
+    U32 generation = panel->generation + 1;
+    *panel = (Panel) { .sibling_next = ui->free, .generation = generation };
     ui->free = panel;
     
     if (ui->focused == panel)
@@ -348,6 +351,20 @@ void panel_add_child_queued(Panel *parent, Panel *new) { TRACE
         .panel = new,
         .panel_source = parent,
     };
+}
+
+Panel *panel_lookup(UI *ui, PanelHandle handle) {
+    Panel *panel = &ui->panel_store[handle.idx];
+    if (panel->generation != handle.generation)
+        return NULL;
+    if ((panel->flags & PanelFlag_InUse) == 0)
+        return NULL;
+    return panel;
+}
+
+PanelHandle panel_handle(Panel *panel) {
+    U32 idx = (U32)(panel - panel->ui->panel_store);
+    return (PanelHandle) { idx, panel->generation }; 
 }
 
 // returns number of glyphs written

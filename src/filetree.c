@@ -48,7 +48,7 @@ typedef struct FileTree {
     FileTreeRow *rows;
     U32 row_count;
     I64 file_select_row;
-    Panel *target_editor;
+    PanelHandle target_editor_handle;
 
     U8 *search_buffer;
     U8 *search_string;
@@ -58,8 +58,8 @@ typedef struct FileTree {
 
 static void filetree_remake_rows(FileTree *ft);
 
-Panel *filetree_create(UI *ui, Panel *target_editor, const U8 *working_dir) { TRACE
-    Panel *panel = panel_create(ui);
+Panel *filetree_create(Panel *ed_panel, const U8 *working_dir) { TRACE
+    Panel *panel = panel_create(ed_panel->ui);
     Arena *arena = panel_arena(panel);
     FileTree *ft = arena_alloc(arena, sizeof(FileTree), alignof(FileTree));
     Dir *dir_tree = arena_alloc(arena, FILETREE_MAX_ENTRY_SIZE, page_size());
@@ -70,7 +70,7 @@ Panel *filetree_create(UI *ui, Panel *target_editor, const U8 *working_dir) { TR
         .name_buffer = name_buffer,
         .dir_tree = dir_tree,
         .rows = rows,
-        .target_editor = target_editor,
+        .target_editor_handle = panel_handle(ed_panel),
         .search_buffer = arena_alloc(arena, FILETREE_MAX_SEARCH_SIZE, page_size()),
         .search_string = arena_alloc(arena, FILETREE_MAX_SEARCH_SIZE, page_size()),
     };
@@ -212,8 +212,9 @@ void filetree_update(Panel *panel) { TRACE
         bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
 
         if (escape || caps) {
-            Panel *target_editor = ft->target_editor;
-            panel_focus_queued(target_editor);
+            Panel *target_editor = panel_lookup(panel->ui, ft->target_editor_handle);
+            if (target_editor != NULL)
+                panel_focus_queued(target_editor);
             panel_destroy_queued(panel);
         }
 
@@ -243,13 +244,13 @@ void filetree_update(Panel *panel) { TRACE
                 }
             } else if (row->entry_type == EntryType_File) {
                 U8 *filepath = filetree_get_full_path(ft, &w->frame_arena, row);
-                Panel *target_editor = ft->target_editor;
-                Editor *ed = target_editor->data;
-                if (ed) {
+                Panel *target_editor = panel_lookup(panel->ui, ft->target_editor_handle);
+                if (target_editor != NULL) {
+                    Editor *ed = target_editor->data;
                     editor_load_filepath(ed, filepath);
                     panel_focus_queued(target_editor);
-                    panel_destroy_queued(panel);
                 }
+                panel_destroy_queued(panel);
             }
         }
 

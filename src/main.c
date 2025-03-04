@@ -925,7 +925,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     // font atlas -------------------------------------------------------
 
-    const char *ttf_path = "/usr/share/fonts/TTF/RobotoMono-Regular.ttf";
+    const char *ttf_path = "/usr/share/fonts/truetype/roboto/mono/RobotoMono-Medium.ttf";
     //const char *ttf_path = "/usr/share/fonts/TTF/IosevkaFixed-Regular.ttf";
     FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
 
@@ -1517,6 +1517,13 @@ static int min_i(int a, int b) { TRACE
 
 static int max_i(int a, int b) { TRACE
     return a > b ? a : b;
+}
+
+U8 *copy_cstr(Arena *arena, const char *str) {
+    U64 str_len = strlen(str);
+    U8 *new_str = arena_alloc(arena, str_len + 1, 1);
+    memcpy(new_str, str, str_len + 1);
+    return new_str;
 }
 
 GLFWmonitor* glfw_get_current_monitor(GLFWwindow *window) { TRACE

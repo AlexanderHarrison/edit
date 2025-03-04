@@ -21,6 +21,8 @@ static inline bool is(U64 held, U64 mask) {
     return (held & mask) == mask;
 }
 
+U8 *copy_cstr(Arena *arena, const char *str);
+
 // Config -----------------------------
 
 #define CODE_FONT_SIZE FontSize_13
@@ -63,7 +65,6 @@ static inline bool is(U64 held, U64 mask) {
 
 #define MODE_INPUT_TEXT_MAX 512
 #define MODE_TEXT_MAX_LENGTH 8096
-#define COPY_MAX_LENGTH 8096
 #define TEXT_MAX_LENGTH (1ull << 28)
 
 #define UNDO_STACK_SIZE (64ul*MB)
