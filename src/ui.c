@@ -25,7 +25,6 @@ UI *ui_create(W *w, FontAtlas *atlas, Arena *arena) { TRACE
 }
 
 void ui_destroy(UI *ui) { TRACE
-    return;
     Panel *end = ui->free;
     while (end->sibling_next)
         end = end->sibling_next;
@@ -42,6 +41,42 @@ void ui_destroy(UI *ui) { TRACE
     ui->free = ui->panel_store;
 }
 
+Panel *panel_next(Panel *panel) {
+    Panel *next = panel->sibling_next;
+    while (next) {
+        if ((next->flags & PanelFlag_Hidden) == 0)
+            return next;
+        next = next->sibling_next;
+    }
+    
+    Panel *prev = panel->sibling_prev;
+    Panel *last_valid = NULL;
+    while (prev) {
+        if ((prev->flags & PanelFlag_Hidden) == 0)
+            last_valid = prev;
+        prev = prev->sibling_prev;
+    }
+    return last_valid;
+}
+
+Panel *panel_prev(Panel *panel) {
+    Panel *prev = panel->sibling_prev;
+    while (prev) {
+        if ((prev->flags & PanelFlag_Hidden) == 0)
+            return prev;
+        prev = prev->sibling_prev;
+    }
+    
+    Panel *next = panel->sibling_next;
+    Panel *last_valid = NULL;
+    while (next) {
+        if ((next->flags & PanelFlag_Hidden) == 0)
+            last_valid = next;
+        next = next->sibling_next;
+    }
+    return last_valid;
+}
+
 void ui_update(UI *ui, Rect *viewport) { TRACE
     ui->glyph_count = 0;
 
@@ -53,19 +88,10 @@ void ui_update(UI *ui, Rect *viewport) { TRACE
 
     if (ctrl && is(pressed, key_mask(GLFW_KEY_W))) {
         if (ui->focused) {
-            bool shift = is(modifiers, GLFW_MOD_SHIFT);
-
-            if (!shift) {
-                if (ui->focused->sibling_next)
-                    panel_focus(ui->focused->sibling_next);
-                else while (ui->focused->sibling_prev)
-                    panel_focus(ui->focused->sibling_prev);
-            } else {
-                if (ui->focused->sibling_prev)
-                    panel_focus(ui->focused->sibling_prev);
-                else while (ui->focused->sibling_next)
-                    panel_focus(ui->focused->sibling_next);
-            }
+            if (!is(modifiers, GLFW_MOD_SHIFT))
+                panel_focus(panel_next(ui->focused));
+            else 
+                panel_focus(panel_prev(ui->focused));
         }
     }
 
@@ -152,45 +178,88 @@ void panel_set_viewport(Panel *panel, Rect *viewport) { TRACE
         F32 dynamic_size = panel->viewport.w;
         F32 dynamic_children = 0.f;
         for (Panel *child = panel->child; child; child = child->sibling_next) {
+            if (child->flags & PanelFlag_Hidden)
+                continue;
             dynamic_children += child->dynamic_weight_w;
             dynamic_size -= child->static_w;
         }
 
-        F32 dynamic_width = dynamic_size / dynamic_children;
+        F32 dynamic_width = dynamic_children != 0.f ? dynamic_size / dynamic_children : 0.f;
         Rect child_viewport = panel->viewport;
         for (Panel *child = panel->child; child; child = child->sibling_next) {
-            F32 width = dynamic_width * child->dynamic_weight_w + child->static_w;
-            child_viewport.w = width;
+            if (child->flags & PanelFlag_Hidden) {
+                child_viewport.w = 0.f;
+            } else {
+                F32 dynamic_weight = child->dynamic_weight_w;  
+                F32 width = dynamic_width * dynamic_weight + child->static_w;
+                child_viewport.w = width;
+            }
             panel_set_viewport(child, &child_viewport);
-            child_viewport.x += width;
+            child_viewport.x += child_viewport.w;
         }
     } else if (panel->flags & PanelMode_HSplit) {
         F32 dynamic_size = panel->viewport.h;
         F32 dynamic_children = 0.f;
         for (Panel *child = panel->child; child; child = child->sibling_next) {
+            if (child->flags & PanelFlag_Hidden)
+                continue;
             dynamic_children += child->dynamic_weight_h;
             dynamic_size -= child->static_h;
         }
 
-        F32 dynamic_height = dynamic_size / dynamic_children;
+        F32 dynamic_height = dynamic_children != 0.f ? dynamic_size / dynamic_children : 0.f;
         Rect child_viewport = panel->viewport;
         for (Panel *child = panel->child; child; child = child->sibling_next) {
-            F32 height = dynamic_height * child->dynamic_weight_h + child->static_h;
-            child_viewport.h = height;
+            if (child->flags & PanelFlag_Hidden) {
+                child_viewport.h = 0.f;
+            } else {
+                F32 dynamic_weight = child->dynamic_weight_h;  
+                F32 height = dynamic_height * dynamic_weight + child->static_h;
+                child_viewport.h = height;
+            }
             panel_set_viewport(child, &child_viewport);
-            child_viewport.y += height;
+            child_viewport.y += child_viewport.h;
         }
     }
 }
 
+Panel *ui_panel_find_inner(Panel *panel, const char *name) {
+    if (panel->name && strcmp(panel->name, name) == 0)
+        return panel;
+    
+    if (panel->child) {
+        Panel *ret = ui_panel_find_inner(panel->child, name);
+        if (ret)
+            return ret; 
+    }
+    
+    if (panel->sibling_next) {
+        Panel *ret = ui_panel_find_inner(panel->sibling_next, name);
+        if (ret)
+            return ret; 
+    }
+    
+    return NULL;
+}
+
+Panel *ui_find_panel(UI *ui, const char *name) {
+    return ui_panel_find_inner(ui->root, name);
+}
+
 void panel_focus(Panel *panel) { TRACE
     expect(panel->flags & PanelFlag_InUse);
-
     UI *ui = panel->ui;
-    if (ui->focused)
-        ui->focused->flags &= ~(U32)PanelFlag_Focused;
-    panel->flags |= PanelFlag_Focused;
+    Panel *prev_focused = ui->focused;
+    if (prev_focused)
+        prev_focused->flags &= ~(U32)PanelFlag_Focused;
+    if (panel)
+        panel->flags |= PanelFlag_Focused;
     ui->focused = panel;
+    
+    if (prev_focused && prev_focused->focus_lost_fn)
+        prev_focused->focus_lost_fn(prev_focused);
+    if (panel && panel->focus_fn)
+        panel->focus_fn(panel);
 }
 
 void panel_update(Panel *panel) { TRACE
@@ -256,14 +325,10 @@ void panel_destroy(Panel *panel) { TRACE
 
 void panel_detach(Panel *panel) { TRACE
     if (panel->flags & PanelFlag_Focused) {
-        if (panel->sibling_next)
-            panel_focus(panel->sibling_next);
-        else if (panel->sibling_prev)
-            panel_focus(panel->sibling_prev);
-        else if (panel->parent)
-            panel_focus(panel->parent);
-        else
-            panel_focus(panel->ui->root);
+        Panel *focus = panel_next(panel);
+        if (focus == NULL) focus = panel->parent;
+        if (focus == NULL) focus = panel->ui->root;
+        panel_focus(focus);
     }
 
     Panel *prev = panel->sibling_prev;
@@ -406,7 +471,9 @@ F32 ui_push_string(
 ) { TRACE
     F32 width = 0.f;
     for (U64 i = 0; i < length; ++i) {
-        U32 glyph_idx = glyph_lookup_idx(font_size, str[i]);
+        U8 c = str[i];
+        if (c == '\n') break; 
+        U32 glyph_idx = glyph_lookup_idx(font_size, c);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
         if (x + width + info.advance_width <= max_x) {
@@ -420,4 +487,38 @@ F32 ui_push_string(
         width += info.advance_width;
     }
     return width;
+}
+
+Dims ui_push_string_multiline(
+    UI *ui,
+    const U8 *str, U64 length,
+    FontAtlas *font_atlas,
+    RGBA8 colour, U64 font_size,
+    F32 x, F32 y, F32 y_increment,
+    F32 max_x, F32 max_y
+) {
+    Dims dims = {0.f, 0.f};
+    while (y + y_increment <= max_y) {
+        F32 width = ui_push_string(
+            ui, 
+            str, length,
+            font_atlas,
+            colour, font_size,
+            x, y, max_x
+        );
+        if (width > dims.w)
+            dims.w = width;
+        y += y_increment;
+        dims.h += y_increment;
+        
+        while (1) {
+            if (length == 0) return dims;
+            U8 c = *str;
+            str++;
+            length--;
+            if (c == '\n') break; 
+        }
+    }
+    
+    return dims;
 }

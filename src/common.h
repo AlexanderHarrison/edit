@@ -9,12 +9,12 @@
 #include <tools.h>
 
 typedef enum FontSize {
-    FontSize_7, FontSize_13, FontSize_21,
+    FontSize_9, FontSize_13, FontSize_21,
     FontSize_Count,
 } FontSize;
 
 static const F32 font_size_px[FontSize_Count] = {
-    7.f, 13.f, 21.f,
+    9.f, 13.f, 21.f,
 };
 
 static inline bool is(U64 held, U64 mask) {
@@ -22,11 +22,12 @@ static inline bool is(U64 held, U64 mask) {
 }
 
 U8 *copy_cstr(Arena *arena, const char *str);
+U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 
 // Config -----------------------------
 
 #define CODE_FONT_SIZE FontSize_13
-#define CODE_SMALL_FONT_SIZE FontSize_7
+#define CODE_SMALL_FONT_SIZE FontSize_9
 #define MODE_FONT_SIZE FontSize_21
 #define CODE_LINE_SPACING 17.f
 #define CODE_SMALL_LINE_SPACING 12.f
@@ -79,6 +80,9 @@ U8 *copy_cstr(Arena *arena, const char *str);
 #define FILETREE_MAX_ENTRY_COUNT (FILETREE_MAX_ENTRY_SIZE / sizeof(Entry))
 #define FILETREE_MAX_ROW_COUNT (FILETREE_MAX_ROW_SIZE / sizeof(FileTreeRow))
 #define FILETREE_MAX_SEARCH_SIZE (4ul*KB)
+
+#define JUMPLIST_MAX_POINT_SIZE (64ul*MB)
+#define JUMPLIST_MAX_POINT_COUNT (JUMPLIST_MAX_POINT_SIZE / sizeof(JumpPoint))
 
 #define UI_MAX_PANEL_SIZE (64ul*MB)
 #define UI_MAX_PANEL_COUNT (UI_MAX_PANEL_SIZE / sizeof(Panel))

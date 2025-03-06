@@ -5,10 +5,12 @@
 #include "ui.h"
 #include "filetree.h"
 #include "editor.h"
+#include "jumplist.h"
 
 #include "ui.c"
 #include "filetree.c"
 #include "editor.c"
+#include "jumplist.c"
 
 #include "../build/main_vert.h"
 #include "../build/main_frag.h"
@@ -933,7 +935,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     UI *ui = ui_create(&w, font_atlas, &static_arena);
 
-    //// Editor -----------------------------------------------------------
+    // Editor -----------------------------------------------------------
 
     const char *file = NULL;
     if (argc > 1) file = argv[1];
@@ -943,6 +945,9 @@ int main(int argc, char *argv[]) { INIT_TRACE
     ui->root = vsplit;
     panel_add_child(ui->root, editor_panel);
     panel_focus(editor_panel);
+    
+    Panel *jl_panel = jumplist_create(ui);
+    panel_add_child(ui->root, jl_panel);
 
     // glyph draw buffer ------------------------------------------------
 
@@ -1523,6 +1528,12 @@ U8 *copy_cstr(Arena *arena, const char *str) {
     U64 str_len = strlen(str);
     U8 *new_str = arena_alloc(arena, str_len + 1, 1);
     memcpy(new_str, str, str_len + 1);
+    return new_str;
+}
+
+U8 *copy_str(Arena *arena, const U8 *str, U32 str_len) {
+    U8 *new_str = arena_alloc(arena, str_len, 1);
+    memcpy(new_str, str, str_len);
     return new_str;
 }
 

@@ -94,6 +94,8 @@ void        editor_undo(Editor *ed);
 void        editor_redo(Editor *ed);
 static inline U8 editor_text(Editor *ed, I64 byte);
 void        editor_open_filetree(Panel *ed_panel, bool expand);
+void        editor_open_jumplist(Panel *ed_panel);
+void        editor_jumplist_add(Panel *ed_panel, JumpPoint point);
 void        editor_text_remove(Editor *ed, I64 start, I64 end);
 void        editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
 // same as above, but does not add to the undo stack
@@ -373,7 +375,7 @@ void editor_update(Panel *panel) { TRACE
                     ed->selection_a = 0;
             }
 
-            if (is(pressed, key_mask(GLFW_KEY_R))) {
+            if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_R))) {
                 if (ed->selection_group == Group_SubWord) {
                     ed->selection_group = Group_Word;
                     Range range = editor_group(ed, ed->selection_group, ed->selection_a);
@@ -408,6 +410,30 @@ void editor_update(Panel *panel) { TRACE
 
             if (is(pressed, key_mask(GLFW_KEY_T)))
                 editor_open_filetree(panel, !shift);
+                
+            if (!ctrl && is(pressed, key_mask(GLFW_KEY_B))) {
+                if (!shift) {
+                    editor_open_jumplist(panel);
+                } else {
+                    Range paragraph = editor_group(ed, Group_Paragraph, ed->selection_a);
+                    if (paragraph.start < 0) paragraph.start = 0;
+                    if (paragraph.end > ed->text_length) paragraph.end = ed->text_length;
+                    if (paragraph.end < paragraph.start) {
+                        I64 end = paragraph.end;
+                        paragraph.end = paragraph.start;
+                        paragraph.start = end;
+                    }
+                     
+                    JumpPoint current_point = {
+                        .filepath = ed->filepath,
+                        .filepath_len = ed->filepath_length,
+                        .text = &ed->text[paragraph.start],
+                        .text_len = (U32)(paragraph.end - paragraph.start),
+                        .line_idx = editor_line_index(ed, paragraph.start), 
+                    };
+                    editor_jumplist_add(panel, current_point);
+                }
+            }
 
             //if (is(pressed, key_mask(GLFW_KEY_K))) ed->scroll_y -= 1.f;
             //else if (is(repeating, key_mask(GLFW_KEY_K))) ed->scroll_y -= CODE_SCROLL_SPEED_SLOW;
@@ -1016,6 +1042,22 @@ void editor_open_filetree(Panel *ed_panel, bool expand) {
     }
 }
 
+void editor_open_jumplist(Panel *ed_panel) {
+    Panel *jl_panel = ui_find_panel(ed_panel->ui, "jumplist");
+    if (jl_panel) {
+        JumpList *jl = jl_panel->data;
+        jl->ed_handle = panel_handle(ed_panel);
+        if (jl->point_count)
+            panel_focus_queued(jl_panel);
+    }
+}
+
+void editor_jumplist_add(Panel *ed_panel, JumpPoint point) {
+    Panel *jl_panel = ui_find_panel(ed_panel->ui, "jumplist");
+    if (jl_panel)
+        jumppoint_add(jl_panel, point);
+}
+
 // the returned rect will run from a, until b or the end of the line, whichever is shortest.
 Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v) { TRACE
     Range line = editor_group(ed, Group_Line, a);
@@ -1115,6 +1157,7 @@ int editor_load_filepath(Editor *ed, const U8 *filepath) { TRACE
     ed->selection_group = Group_Line;
     ed->selection_a = 0;
     ed->selection_b = editor_group(ed, Group_Line, 0).end;
+    ed->flags &= ~(U32)EditorFlag_Unsaved;
     
     SyntaxHighlighting *syntax = syntax_for_path(arena_filepath, filepath_length);
     ed->syntax = syntax ? *syntax : (SyntaxHighlighting){0};
@@ -1134,20 +1177,52 @@ static inline U8 editor_text(Editor *ed, I64 byte) {
     return ed->text[byte];
 }
 
+bool range_all_whitespace(Editor *ed, Range range) {
+    for (I64 i = range.start; i < range.end; ++i) {
+        if (!char_whitespace(editor_text(ed, i)))
+            return false;
+    }
+    return true;
+}
+
 Range editor_group_range_paragraph(Editor *ed, I64 byte) { TRACE
     // not much we can do here
     if (byte < 0) byte = 0;
     if (byte >= ed->text_length) byte = ed->text_length;
-
+    
     I64 start = byte;
-    while (editor_text(ed, start-1) != '\n' || editor_text(ed, start-2) != '\n')
-        start--;
-
+    while (1) {
+        Range line = editor_group(ed, Group_Line, start-1);
+        start = line.start;
+        if (!range_all_whitespace(ed, line))
+            break;
+    }
+    while (1) {
+        Range line = editor_group(ed, Group_Line, start-1);
+        if (range_all_whitespace(ed, line))
+            break;
+        start = line.start;
+    }
+    
     I64 end = byte;
-    while (editor_text(ed, end) != '\n' || editor_text(ed, end-1) != '\n')
-        end++;
-    while (editor_text(ed, end) == '\n' && end < ed->text_length)
-        end++;
+    while (1) {
+        Range line = editor_group(ed, Group_Line, end+1);
+        end = line.end;
+        if (range_all_whitespace(ed, line))
+            break;
+    }
+    while (1) {
+        Range line = editor_group(ed, Group_Line, end+1);
+        end = line.end;
+        if (!range_all_whitespace(ed, line))
+            break;
+    }
+
+    //I64 end = byte;
+    //while (editor_text(ed, end) != '\n' || editor_text(ed, end-1) != '\n')
+        //end++;
+    //while (editor_text(ed, end) == '\n' && end < ed->text_length)
+        //end++;
 
     return (Range) { start, end };
 }
