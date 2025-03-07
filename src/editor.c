@@ -327,7 +327,6 @@ void editor_update(Panel *panel) { TRACE
             }
 
             if (!ctrl && is(pressed, key_mask(GLFW_KEY_W))) {
-                editor_selection_trim(ed);
                 if (shift)
                     editor_group_expand(ed);
                 else
@@ -831,19 +830,19 @@ void editor_update(Panel *panel) { TRACE
     
     for (I64 i = 0; i < text_length; ++i) {
         U8 ch = ed->text[i];
-        
+
         // compute syntax highlighting
         RGBA8 text_colour;
         if (current_syntax_group == NULL) {
             U8 ch_next = editor_text(ed, i+1);
-            
+
             U64 group_count = ed->syntax.group_count; 
             for (U64 j = 0; j < group_count; ++j) {
                 SyntaxGroup *group = &ed->syntax.groups[j];
                 U8 *start_chars = group->start_chars;
                 bool match_0 = start_chars[0] == ch;
                 bool match_1 = start_chars[1] == 0 || start_chars[1] == ch_next;
-                
+
                 if (match_0 & match_1) {
                     current_syntax_group = group;
                     break;
@@ -1189,33 +1188,35 @@ Range editor_group_range_paragraph(Editor *ed, I64 byte) { TRACE
     // not much we can do here
     if (byte < 0) byte = 0;
     if (byte >= ed->text_length) byte = ed->text_length;
-    
+
     I64 start = byte;
-    while (1) {
-        Range line = editor_group(ed, Group_Line, start-1);
-        start = line.start;
-        if (!range_all_whitespace(ed, line))
-            break;
+    if (range_all_whitespace(ed, editor_group(ed, Group_Line, start))) {
+        while (start > 0) {
+            Range line = editor_group(ed, Group_Line, start-1);
+            if (!range_all_whitespace(ed, line))
+                break;
+            start = line.start;
+        }
     }
-    while (1) {
+    while (start > 0) {
         Range line = editor_group(ed, Group_Line, start-1);
         if (range_all_whitespace(ed, line))
             break;
         start = line.start;
     }
-    
+
     I64 end = byte;
-    while (1) {
-        Range line = editor_group(ed, Group_Line, end+1);
+    while (end < ed->text_length) {
+        Range line = editor_group(ed, Group_Line, end);
         end = line.end;
         if (range_all_whitespace(ed, line))
             break;
     }
-    while (1) {
-        Range line = editor_group(ed, Group_Line, end+1);
-        end = line.end;
+    while (end < ed->text_length) {
+        Range line = editor_group(ed, Group_Line, end);
         if (!range_all_whitespace(ed, line))
             break;
+        end = line.end;
     }
 
     //I64 end = byte;
@@ -1223,7 +1224,7 @@ Range editor_group_range_paragraph(Editor *ed, I64 byte) { TRACE
         //end++;
     //while (editor_text(ed, end) == '\n' && end < ed->text_length)
         //end++;
-
+     
     return (Range) { start, end };
 }
 
