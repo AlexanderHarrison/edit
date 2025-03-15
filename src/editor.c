@@ -1019,7 +1019,8 @@ void editor_update(Panel *panel) { TRACE
             x, y, mode_info_v.x + mode_info_v.w
         );
     }
-    
+
+    // draw status    
     {
         Rect mode_info_v = (Rect) {
             .x = text_v.x,
@@ -1035,6 +1036,58 @@ void editor_update(Panel *panel) { TRACE
             .colour = COLOUR_FILE_INFO,
         };
     
+        F32 descent = font_atlas->descent[CODE_FONT_SIZE];
+        F32 status_x = mode_info_v.x;
+        F32 status_y = mode_info_v.y + descent + CODE_LINE_SPACING;
+        F32 status_max_x = status_x + mode_info_v.w;
+        
+        // find line number
+        I64 line_i;
+        switch (ed->mode) {
+            case Mode_Normal: {
+                line_i = editor_line_index(ed, ed->selection_b);
+            } break;
+            case Mode_Insert: {
+                line_i = editor_line_index(ed, ed->insert_cursor);
+            } break;
+            case Mode_Search: {
+                if (ed->search_match_count) {
+                    I64 search_byte = ed->search_matches[ed->search_cursor];  
+                    line_i = editor_line_index(ed, search_byte);
+                } else {
+                    line_i = editor_line_index(ed, ed->selection_b);
+                }
+            } break;
+            case Mode_QuickMove: {
+                line_i = (I64)roundf(ed->scroll_y);
+            } break;
+        }
+        
+        // draw line number
+        U8 *line_str = w->frame_arena.head;
+        U64 line_str_len = int_to_string(&w->frame_arena, line_i);
+        status_x += ui_push_string(
+            ui,
+            line_str, line_str_len,
+            font_atlas,
+            (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
+            status_x, status_y, status_max_x
+        );
+        status_x += 10.f; 
+
+        // unsaved [+] symbol 
+        if (ed->flags & EditorFlag_Unsaved) {
+            status_x += ui_push_string_terminated(
+                ui,
+                (const U8*)"[+]",
+                font_atlas,
+                (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
+                status_x, status_y, status_max_x
+            );
+            status_x += 10.f;
+        } 
+        
+        // filename 
         if (ed->filepath) {
             U32 filepath_start = ed->filepath_length-1;
             U32 slash_count = 1;
@@ -1047,34 +1100,6 @@ void editor_update(Panel *panel) { TRACE
                 filepath_start--;
             }
     
-            F32 descent = font_atlas->descent[CODE_FONT_SIZE];
-            F32 status_x = mode_info_v.x;
-            F32 status_y = mode_info_v.y + descent + CODE_LINE_SPACING;
-            F32 status_max_x = status_x + mode_info_v.w;
-            
-            if (ed->flags & EditorFlag_Unsaved) {
-                status_x += ui_push_string_terminated(
-                    ui,
-                    (const U8*)"[+]",
-                    font_atlas,
-                    (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
-                    status_x, status_y, status_max_x
-                );
-                status_x += 10.f;
-            }
-    
-            I64 line_i = editor_line_index(ed, ed->selection_b);
-            U8 *line_str = w->frame_arena.head;
-            U64 line_str_len = int_to_string(&w->frame_arena, line_i);
-            status_x += ui_push_string(
-                ui,
-                line_str, line_str_len,
-                font_atlas,
-                (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
-                status_x, status_y, status_max_x
-            );
-            status_x += 10.f; 
-
             status_x += ui_push_string(
                 ui,
                 ed->filepath + filepath_start, ed->filepath_length - filepath_start,
@@ -1587,8 +1612,12 @@ void undo_clear(UndoStack *st) { TRACE
 
 // returns number of digits
 static U64 int_to_string(Arena *arena, I64 n) {
-    if (n < 0)
+    U64 char_count = 0;
+     
+    if (n < 0) {
         *(U8*)ARENA_ALLOC(arena, U8) = '-';
+        char_count++;
+    }
     U64 n_abs = (U64)(n >= 0 ? n : -n);
 
     // count digits
@@ -1600,6 +1629,7 @@ static U64 int_to_string(Arena *arena, I64 n) {
     } while (m != 0);
 
     U8 *digits = ARENA_ALLOC_ARRAY(arena, *digits, digit_count);
+    char_count += digit_count;
 
     for (U64 i = 0; i < digit_count; ++i) {
         U64 digit = n_abs % 10;
@@ -1607,7 +1637,7 @@ static U64 int_to_string(Arena *arena, I64 n) {
         digits[digit_count - i - 1] = (U8)digit + '0';
     }
 
-    return digit_count;
+    return char_count;
 }
 
 Indices editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end) {
