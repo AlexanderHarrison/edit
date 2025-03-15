@@ -768,7 +768,7 @@ void editor_update(Panel *panel) { TRACE
         byte_visible_end = a;
     }
 
-    // selection group bar
+    // mode/selection group colour bar
     {
         RGBA8 selection_bar_colour;
 
@@ -1102,10 +1102,12 @@ void editor_jumplist_add(Panel *ed_panel, JumpPoint point) {
         jumppoint_add(jl_panel, point);
 }
 
-// the returned rect will run from a, until b or the end of the line, whichever is shortest.
+// the returned rect will run from a, until b, the end of the line,
+// or the end of the viewport, whichever is shortest.
 Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v) { TRACE
     Range line = editor_group(ed, Group_Line, a);
     I64 line_i = editor_line_index(ed, a);
+    F32 max_x = text_v->x + text_v->w;
 
     // get x position of selection rect on this line
     F32 x, width;
@@ -1126,6 +1128,11 @@ Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *tex
             U32 glyph_idx = glyph_lookup_idx(CODE_FONT_SIZE, ch);
             GlyphInfo info = font_atlas->glyph_info[glyph_idx];
             width += info.advance_width;
+            
+            if (x + width >= max_x) {
+                width = max_x - x;
+                break;
+            }
         }
     }
 

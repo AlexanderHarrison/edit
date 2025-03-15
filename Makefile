@@ -20,7 +20,7 @@ export GCC_COLORS = warning=01;33
 edit: build/edit
 
 install: release
-	cp build/edit ~/.local/bin/
+	cp build/edit ~/.local/bin/edit-bin
 
 build: build/edit
 
