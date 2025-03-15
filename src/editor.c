@@ -86,6 +86,7 @@ Range       editor_group(Editor *ed, Group group, I64 byte);
 Range       editor_group_next(Editor *ed, Group group, I64 current_group_end);
 Range       editor_group_prev(Editor *ed, Group group, I64 current_group_start);
 I64         editor_line_index(Editor *ed, I64 byte);
+I64         editor_byte_index(Editor *ed, I64 line);
 Rect        editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v);
 void        editor_selection_trim(Editor *ed);
 Indices     editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end);
@@ -134,6 +135,12 @@ static SyntaxGroup syntax_py[] = {
     SYNTAX_STRING_SINGLE_QUOTES,
 };
 
+static SyntaxGroup syntax_asm[] = {
+    SYNTAX_COMMENT_HASHTAG,
+    SYNTAX_STRING_DOUBLE_QUOTES,
+    SYNTAX_STRING_SINGLE_QUOTES,
+};
+
 typedef struct SyntaxLookup {
     char extension[8];
     SyntaxHighlighting syntax;
@@ -149,6 +156,8 @@ static SyntaxLookup syntax_lookup[] = {
     {"py",  {countof(syntax_py), syntax_py}},
     {"glsl",{countof(syntax_c), syntax_c}},
     {"hlsl",{countof(syntax_c), syntax_c}},
+    {"s",   {countof(syntax_asm), syntax_asm}},
+    {"asm", {countof(syntax_asm), syntax_asm}},
 };
 
 SyntaxHighlighting *syntax_for_path(const U8 *filepath, U32 filepath_len) {
@@ -236,12 +245,13 @@ void editor_update(Panel *panel) { TRACE
     FontAtlas *font_atlas = ui->atlas;
 
     // UPDATE ---------------------------------------------------------------
-
+    
     // state switch
     if (panel->flags & PanelFlag_Focused) {
         U64 special_pressed = w->inputs.key_special_pressed;
         U64 special_repeating = w->inputs.key_special_repeating;
         U64 pressed = w->inputs.key_pressed;
+        U64 held = w->inputs.key_held;
         U64 repeating = w->inputs.key_repeating;
         U64 modifiers = w->inputs.modifiers;
 
@@ -267,7 +277,6 @@ void editor_update(Panel *panel) { TRACE
                     expect(ed->text_length >= 0);
                     expect(write_file((char*)ed->filepath, ed->text, (U64)ed->text_length) == 0);
                     ed->flags &= ~(U32)EditorFlag_Unsaved;
-                    printf("wrote %li bytes to %s\n", ed->text_length, ed->filepath);
                 }
             }
 
@@ -437,8 +446,10 @@ void editor_update(Panel *panel) { TRACE
             //if (is(pressed, key_mask(GLFW_KEY_K))) ed->scroll_y -= 1.f;
             //else if (is(repeating, key_mask(GLFW_KEY_K))) ed->scroll_y -= CODE_SCROLL_SPEED_SLOW;
 
-            //if (ctrl & is(held, key_mask(GLFW_KEY_D))) ed->scroll_y += CODE_SCROLL_SPEED_FAST;
-            //if (ctrl & is(held, key_mask(GLFW_KEY_U))) ed->scroll_y -= CODE_SCROLL_SPEED_FAST;
+            if (ctrl && is(pressed, key_mask(GLFW_KEY_J)))
+                ed->mode = Mode_QuickMove;
+            if (ctrl && is(pressed, key_mask(GLFW_KEY_K)))
+                ed->mode = Mode_QuickMove;
 
             if (!ctrl && is(pressed, key_mask(GLFW_KEY_Q))) {
                 if ((ed->flags & EditorFlag_Unsaved) == 0 || shift)
@@ -640,9 +651,31 @@ void editor_update(Panel *panel) { TRACE
 
             break;
         }
-        //case (Mode_QuickSearch) {
-        //    break;
-        //}
+        case Mode_QuickMove: {
+            float speed = shift ? CODE_SCROLL_SPEED_SLOW : CODE_SCROLL_SPEED_FAST;  
+        
+            if (ctrl && is(held, key_mask(GLFW_KEY_J)))
+                ed->scroll_y += speed / (F32)w->refresh_rate;
+            if (ctrl && is(held, key_mask(GLFW_KEY_K)))
+                ed->scroll_y -= speed / (F32)w->refresh_rate;
+                 
+            bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
+            bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
+            if (esc || caps) {
+                ed->mode = Mode_Normal;
+            }
+            
+            if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) {
+                I64 line = (I64)roundf(ed->scroll_y);
+                I64 byte = editor_byte_index(ed, line);
+                Range range = editor_group(ed, Group_Line, byte);
+                ed->selection_a = range.start;
+                ed->selection_b = range.end;
+                ed->mode = Mode_Normal;
+            }
+             
+            break;
+        }
         }
     }
 
@@ -656,27 +689,37 @@ void editor_update(Panel *panel) { TRACE
     // UPDATE ANIMATIONS ----------------------------------------------------
 
     // find new scroll y
-    { 
+    {
+        bool animation_playing = false;
+         
         Mode mode = ed->mode;
-        if (mode == Mode_Normal || mode == Mode_Insert) {
-            I64 line_a = editor_line_index(ed, ed->selection_a);
-            I64 line_b = editor_line_index(ed, ed->selection_b);
-            ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
-        } else if (mode == Mode_Search) {
+        if (mode == Mode_Search) {
             if (ed->search_match_count > 0) {
                 I64 shown_match = ed->search_matches[ed->search_cursor];
                 I64 line_a = editor_line_index(ed, shown_match);
                 I64 line_b = editor_line_index(ed, shown_match + ed->mode_text_length);
                 ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
             }
-        }
+        } else if (mode == Mode_QuickMove) {
+            // do nothing, scroll y preserved across update
+        } else {
+            I64 line_a = editor_line_index(ed, ed->selection_a);
+            I64 line_b = editor_line_index(ed, ed->selection_b);
+            ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
+        } 
 
         // animate scrolling
         F32 diff = ed->scroll_y - ed->scroll_y_visual;
-        if (fabs(diff) < 0.05f) 
+        if (fabs(diff) < 0.01f) { 
             ed->scroll_y_visual = ed->scroll_y;
-        else
-            ed->scroll_y_visual += diff * ANIM_EXP_FACTOR;
+        } else {
+            ed->scroll_y_visual += diff * w->exp_factor;
+            animation_playing = true;
+        }
+        
+        if (animation_playing) {
+            w->force_update = true;
+        }
     }
 
     // START RENDER ----------------------------------------------------------
@@ -743,6 +786,8 @@ void editor_update(Panel *panel) { TRACE
             selection_bar_colour = (RGBA8)COLOUR_FOREGROUND;
         } else if (ed->mode == Mode_Search) {
             selection_bar_colour = (RGBA8) { 0, 255, 100, 255 };
+        } else if (ed->mode == Mode_QuickMove) {
+            selection_bar_colour = (RGBA8) { 100, 255, 100, 255 };
         } else {
             expect(0);
         }
@@ -1338,6 +1383,17 @@ I64 editor_line_index(Editor *ed, I64 byte) { TRACE
             line_i++;
     }
     return line_i;
+}
+
+I64 editor_byte_index(Editor *ed, I64 line) { TRACE
+    if (line < 0) return line;
+    I64 byte = 0;
+    while (line != 0) {
+        if (editor_text(ed, byte) == '\n')
+            line--;
+        byte++;
+    }
+    return byte;
 }
 
 void editor_text_remove(Editor *ed, I64 start, I64 end) { TRACE

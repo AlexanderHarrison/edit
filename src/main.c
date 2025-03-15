@@ -644,7 +644,8 @@ W window_create(Arena *arena) { TRACE
         descriptor_pool, descriptor_set_layout_glyphs,
         static_data_uniform, static_data_uniform_buffer, static_data_uniform_buffer_memory,
 
-        inputs, frame_arena, staging, false,
+        inputs, frame_arena, staging, 
+        false, false, 60.f, 0.2f
     };
 
     // ALLOC GPU BUFFERS ---------------------------------------------------------------------
@@ -987,7 +988,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
         w.inputs.key_repeating = 0;
         w.inputs.key_special_pressed = 0;
         w.inputs.key_special_repeating = 0;
-        if (!has_ops)
+        if (!has_ops && !w.force_update)
             glfwWaitEventsTimeout(0.1);
         else
             glfwPollEvents();
@@ -996,6 +997,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
         w.inputs.mouse_released = w.inputs.mouse_held_prev & ~w.inputs.mouse_held;
         w.inputs.key_pressed = w.inputs.key_held & ~w.inputs.key_held_prev;
         w.inputs.key_released = w.inputs.key_held_prev & ~w.inputs.key_held;
+        w.force_update = false;
 
         if (w.inputs.key_special_pressed & special_mask(GLFW_KEY_F11)) {
             if (w.monitor == NULL) {
@@ -1013,6 +1015,16 @@ int main(int argc, char *argv[]) { INIT_TRACE
                     0, 0, INITIAL_WIDTH, INITIAL_HEIGHT,
                     GLFW_DONT_CARE
                 );
+            }
+        }
+
+        GLFWmonitor *monitor = glfw_get_current_monitor(w.window);
+        if (monitor) {        
+            const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+            if (mode != NULL) {
+                F32 refresh_rate = (F32)mode->refreshRate;
+                w.refresh_rate = refresh_rate;
+                w.exp_factor = 1.f - (F32)pow(1.f - ANIM_EXP_FACTOR, 60.f/refresh_rate);
             }
         }
 

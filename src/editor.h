@@ -32,7 +32,7 @@ typedef enum Mode {
     Mode_Normal,
     Mode_Insert,
     Mode_Search,
-    //Mode_QuickMove,
+    Mode_QuickMove,
 } Mode;
 
 typedef enum UndoOp {

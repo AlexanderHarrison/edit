@@ -31,9 +31,12 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 #define MODE_FONT_SIZE FontSize_21
 #define CODE_LINE_SPACING 17.f
 #define CODE_SMALL_LINE_SPACING 12.f
-#define CODE_SCROLL_SPEED_SLOW 0.2f
-#define CODE_SCROLL_SPEED_FAST 0.6f
-#define ANIM_EXP_FACTOR 1.0f
+#define CODE_SCROLL_SPEED_SLOW 6.f
+#define CODE_SCROLL_SPEED_FAST 15.f
+
+// Percentage to travel to target per frame, assuming 60hz.
+// Will be translated in w->anim_exp_factor for other refresh rates.
+#define ANIM_EXP_FACTOR 0.25f
 
 #define BAR_SIZE 2.f
 #define FILETREE_WIDTH 200.f
@@ -271,7 +274,7 @@ typedef struct Swapchain {
     U32 height;
 } Swapchain;
 
-typedef struct {
+typedef struct W {
     // STATIC DATA -------------------------------
 
     GLFWwindow *window;
@@ -312,6 +315,9 @@ typedef struct {
     StagingBuffer staging_buffer;
 
     bool should_close;
+    bool force_update;
+    F32 refresh_rate;
+    F32 exp_factor;
 } W;
 
 VkResult
