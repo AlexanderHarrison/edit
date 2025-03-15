@@ -91,7 +91,8 @@ typedef struct Editor {
     U8 *mode_text;
     I64 mode_text_length;
     I64 insert_cursor;
-    I64 vertical_movement_base;
+    I64 search_a;
+    I64 search_b;
     I64 *search_matches;
     I64 search_match_count;
     I64 search_cursor;

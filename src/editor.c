@@ -385,17 +385,11 @@ void editor_update(Panel *panel) { TRACE
             }
 
             if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_R))) {
-                if (ed->selection_group == Group_SubWord) {
-                    ed->selection_group = Group_Word;
-                    Range range = editor_group(ed, ed->selection_group, ed->selection_a);
-                    ed->selection_a = range.start;
-                    ed->selection_b = range.end;
-                } else {
-                    ed->selection_group = Group_SubWord;
-                    Range range = editor_group(ed, ed->selection_group, ed->selection_a);
-                    ed->selection_a = range.start;
-                    ed->selection_b = range.end;
-                }
+                editor_selection_trim(ed);
+                ed->selection_group = Group_SubWord;
+                Range range = editor_group(ed, ed->selection_group, ed->selection_a);
+                ed->selection_a = range.start;
+                ed->selection_b = range.end;
             }
 
             if (is(pressed, key_mask(GLFW_KEY_SLASH))) {
@@ -403,6 +397,14 @@ void editor_update(Panel *panel) { TRACE
                 ed->mode_text_length = 0;
                 ed->search_match_count = 0;
                 ed->search_cursor = 0;
+                
+                if (!shift) {
+                    ed->search_a = 0;
+                    ed->search_b = ed->text_length;
+                } else {
+                    ed->search_a = ed->selection_a;
+                    ed->search_b = ed->selection_b;
+                }
             }
 
             if (!ctrl && is(pressed, key_mask(GLFW_KEY_P))) {
@@ -601,8 +603,8 @@ void editor_update(Panel *panel) { TRACE
             ed->search_matches = arena_prealign(&w->frame_arena, alignof(*ed->search_matches));
             ed->search_match_count = 0;
             if (ed->mode_text_length > 0) {
-                I64 start = ed->selection_a;
-                I64 end = ed->selection_b - ed->mode_text_length;
+                I64 start = ed->search_a;
+                I64 end = ed->search_b - ed->mode_text_length;
                 for (I64 a = start; a < end; ++a) {
                     bool matches = true;
                     for (I64 i = 0; i < ed->mode_text_length; ++i) {
