@@ -653,8 +653,8 @@ void editor_update(Panel *panel) { TRACE
             break;
         }
         case Mode_QuickMove: {
-            float speed = shift ? CODE_SCROLL_SPEED_SLOW : CODE_SCROLL_SPEED_FAST;  
-        
+            float speed = shift ? CODE_SCROLL_SPEED_SLOW : CODE_SCROLL_SPEED_FAST;
+            
             if (ctrl && is(held, key_mask(GLFW_KEY_J)))
                 ed->scroll_y += speed / (F32)w->refresh_rate;
             if (ctrl && is(held, key_mask(GLFW_KEY_K)))
@@ -691,36 +691,45 @@ void editor_update(Panel *panel) { TRACE
 
     // find new scroll y
     {
-        bool animation_playing = false;
-         
-        Mode mode = ed->mode;
-        if (mode == Mode_Search) {
+        if (ed->mode == Mode_Search) {
             if (ed->search_match_count > 0) {
                 I64 shown_match = ed->search_matches[ed->search_cursor];
                 I64 line_a = editor_line_index(ed, shown_match);
                 I64 line_b = editor_line_index(ed, shown_match + ed->mode_text_length);
                 ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
             }
-        } else if (mode == Mode_QuickMove) {
+        } else if (ed->mode == Mode_QuickMove) {
             // do nothing, scroll y preserved across update
         } else {
             I64 line_a = editor_line_index(ed, ed->selection_a);
             I64 line_b = editor_line_index(ed, ed->selection_b);
             ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
-        } 
-
+        }
+    }
+    
+    // animate scrolling
+    bool animation_playing = false;
+    { 
         // animate scrolling
-        F32 diff = ed->scroll_y - ed->scroll_y_visual;
-        if (fabs(diff) < 0.01f) { 
-            ed->scroll_y_visual = ed->scroll_y;
+        if (ed->mode != Mode_QuickMove) {
+            F32 diff = ed->scroll_y - ed->scroll_y_visual;
+            if (fabs(diff) < 0.01f) { 
+                ed->scroll_y_visual = ed->scroll_y;
+            } else {
+                ed->scroll_y_visual += diff * w->exp_factor;
+                animation_playing = true;
+            }
         } else {
-            ed->scroll_y_visual += diff * w->exp_factor;
+            ed->scroll_y_visual = ed->scroll_y;
+            
+            // We need to update every frame or the scroll will only occur every default update delay,
+            // which is very very slow.
             animation_playing = true;
         }
-        
-        if (animation_playing) {
-            w->force_update = true;
-        }
+    }
+    
+    if (animation_playing) {
+        w->force_update = true;
     }
 
     // START RENDER ----------------------------------------------------------
