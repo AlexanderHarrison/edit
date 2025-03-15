@@ -301,11 +301,11 @@ void editor_update(Panel *panel) { TRACE
                     ed->selection_a = prev_group.start;
                     ed->selection_b = prev_group.end;
                 } else if (!ctrl && shift) {
-                    Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_b);
-                    ed->selection_b = prev_group.start;
-                } else if (ctrl && shift) {
                     Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_a);
                     ed->selection_a = prev_group.start;
+                } else if (ctrl && shift) {
+                    Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_b);
+                    ed->selection_b = prev_group.start;
                 }
             }
 
@@ -336,6 +336,7 @@ void editor_update(Panel *panel) { TRACE
             }
 
             if (!ctrl && is(pressed, key_mask(GLFW_KEY_W))) {
+                editor_selection_trim(ed);
                 if (shift)
                     editor_group_expand(ed);
                 else
@@ -351,7 +352,7 @@ void editor_update(Panel *panel) { TRACE
                     editor_group_expand(ed);
                 else
                     editor_group_contract(ed);
-                Range range = editor_group(ed, ed->selection_group, ed->selection_b);
+                Range range = editor_group(ed, ed->selection_group, ed->selection_b-1);
                 ed->selection_a = range.start;
                 ed->selection_b = range.end;
             }
@@ -446,9 +447,9 @@ void editor_update(Panel *panel) { TRACE
             //if (is(pressed, key_mask(GLFW_KEY_K))) ed->scroll_y -= 1.f;
             //else if (is(repeating, key_mask(GLFW_KEY_K))) ed->scroll_y -= CODE_SCROLL_SPEED_SLOW;
 
-            if (ctrl && is(pressed, key_mask(GLFW_KEY_J)))
+            if (ctrl && !shift && is(pressed, key_mask(GLFW_KEY_J)))
                 ed->mode = Mode_QuickMove;
-            if (ctrl && is(pressed, key_mask(GLFW_KEY_K)))
+            if (ctrl && !shift && is(pressed, key_mask(GLFW_KEY_K)))
                 ed->mode = Mode_QuickMove;
 
             if (!ctrl && is(pressed, key_mask(GLFW_KEY_Q))) {
@@ -678,9 +679,9 @@ void editor_update(Panel *panel) { TRACE
         }
         }
     }
-
+    
+    // Reverse selection
     if (ed->selection_a > ed->selection_b) {
-        fprintf(stderr, "Error: Cursor range out of order! Reversing %li <-> %li\n", ed->selection_a, ed->selection_b);
         I64 temp = ed->selection_a;
         ed->selection_a = ed->selection_b;
         ed->selection_b = temp;
@@ -1316,7 +1317,7 @@ Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
     while (start > 0 && char_fn(editor_text(ed, start-1)))
         start--;
 
-    I64 end = byte+1;
+    I64 end = start+1;
     while (char_fn(editor_text(ed, end)))
         end++;
     while (char_whitespace(editor_text(ed, end)))
@@ -1347,7 +1348,7 @@ Range editor_group_range_subword(Editor *ed, I64 byte) { TRACE
     while (start > 0 && char_fn(editor_text(ed, start-1)))
         start--;
 
-    I64 end = byte+1;
+    I64 end = start+1;
     while (end < ed->text_length && char_fn(editor_text(ed, end)))
         end++;
     while (end < ed->text_length && (char_whitespace(editor_text(ed, end)) || editor_text(ed, end) == '_'))
