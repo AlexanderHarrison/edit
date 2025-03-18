@@ -209,6 +209,7 @@ Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
         .selection_group = Group_Line,
         .mode_text = arena_alloc(arena, MODE_TEXT_MAX_LENGTH, 16),
         .text = arena_alloc(arena, TEXT_MAX_LENGTH, page_size()),
+        .search_matches = arena_alloc(arena, SEARCH_MAX_LENGTH, page_size()),
     };
     ed->arena = arena;
     panel->data = ed;
@@ -612,7 +613,6 @@ void editor_update(Panel *panel) { TRACE
                     ed->mode_text_length--;
             }
 
-            ed->search_matches = arena_prealign(&w->frame_arena, alignof(*ed->search_matches));
             ed->search_match_count = 0;
             if (ed->mode_text_length > 0) {
                 I64 start = ed->search_a;
@@ -628,11 +628,8 @@ void editor_update(Panel *panel) { TRACE
                         }
                     }
 
-                    if (matches) {
-                        I64 *match_i = ARENA_ALLOC(&w->frame_arena, *match_i);
-                        *match_i = a;
-                        ed->search_match_count++;
-                    }
+                    if (matches)
+                        ed->search_matches[ed->search_match_count++] = a;
                 }
             }
 

@@ -71,6 +71,7 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 #define MODE_INPUT_TEXT_MAX 512
 #define MODE_TEXT_MAX_LENGTH 8096
 #define TEXT_MAX_LENGTH (1ull << 28)
+#define SEARCH_MAX_LENGTH (64ul*MB)
 
 #define UNDO_STACK_SIZE (64ul*MB)
 #define UNDO_TEXT_SIZE (64ul*MB)
