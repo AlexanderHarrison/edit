@@ -81,6 +81,8 @@ UndoStack   undo_create(Arena *arena);
 void        undo_clear(UndoStack *st);
 UndoElem   *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op);
 
+void        editor_on_focus(Panel *ed_panel);
+void        editor_on_focus_lost(Panel *ed_panel);
 void        editor_clear_file(Editor *ed);
 Range       editor_group(Editor *ed, Group group, I64 byte);
 Range       editor_group_next(Editor *ed, Group group, I64 current_group_end);
@@ -197,6 +199,8 @@ SyntaxHighlighting *syntax_for_path(const U8 *filepath, U32 filepath_len) {
 Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
     Panel *panel = panel_create(ui);
     panel->update_fn = editor_update;
+    panel->focus_fn = editor_on_focus;
+    panel->focus_lost_fn = editor_on_focus_lost;
     Arena *arena = panel_arena(panel);
 
     Editor *ed = arena_alloc(arena, sizeof(Editor), alignof(Editor));
@@ -235,6 +239,14 @@ void editor_group_contract(Editor *ed) { TRACE
        Group_Character, // Group_Character
     };
     ed->selection_group = lut[ed->selection_group];
+}
+
+void editor_on_focus(Panel *ed_panel) {
+    ed_panel->dynamic_weight_w = EDITOR_FOCUSED_PANEL_WEIGHT;
+}
+
+void editor_on_focus_lost(Panel *ed_panel) {
+    ed_panel->dynamic_weight_w = 1.f;
 }
 
 void editor_update(Panel *panel) { TRACE

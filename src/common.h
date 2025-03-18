@@ -44,6 +44,7 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 #define MODE_INFO_HEIGHT 26.f
 #define MODE_INFO_Y_OFFSET 60.f
 #define MODE_INFO_PADDING 5.f
+#define EDITOR_FOCUSED_PANEL_WEIGHT 1.5f
 
 #define COLOUR_WHITE    { 200, 200, 200, 255 }
 #define COLOUR_RED      { 230, 100, 100, 255 }
