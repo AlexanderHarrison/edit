@@ -35,19 +35,22 @@ static U64 int_to_string(Arena *arena, I64 n);
 
 // EDITOR ####################################################################
 
-#define SYNTAX_COMMENT_SLASHES { {'/', '/'}, {'\n'}, 0, COLOUR_COMMENT }
-#define SYNTAX_COMMENT_HASHTAG { {'#'}, {'\n'}, 0, COLOUR_COMMENT }
+#define SYNTAX_COMMENT_SLASHES      { {'/', '/'}, {'\n'}, 0, COLOUR_COMMENT }
+#define SYNTAX_COMMENT_SLASH_STAR   { {'/', '*'}, {'*', '/'}, 0, COLOUR_COMMENT }
+#define SYNTAX_COMMENT_HASHTAG      { {'#'}, {'\n'}, 0, COLOUR_COMMENT }
 #define SYNTAX_STRING_DOUBLE_QUOTES { {'"'}, {'"'}, '\\', COLOUR_STRING }
 #define SYNTAX_STRING_SINGLE_QUOTES { {'\''}, {'\''}, '\\', COLOUR_STRING }
 
 static SyntaxGroup syntax_c[] = {
     SYNTAX_COMMENT_SLASHES,
+    SYNTAX_COMMENT_SLASH_STAR,
     SYNTAX_STRING_DOUBLE_QUOTES,
     SYNTAX_STRING_SINGLE_QUOTES,
 };
 
 static SyntaxGroup syntax_rs[] = {
     SYNTAX_COMMENT_SLASHES,
+    SYNTAX_COMMENT_SLASH_STAR,
     SYNTAX_STRING_DOUBLE_QUOTES,
 };
 
