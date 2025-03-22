@@ -1,6 +1,8 @@
 # Edit
 A modal text editor!
 
+Unix only for now - edit depends on freetype.
+
 ## Keybinds
 Keybinds can only be changed by editing the source.
 
