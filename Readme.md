@@ -1,6 +1,8 @@
 # Edit
 A modal text editor!
 
+[![no effort edit demo](https://img.youtube.com/vi/4qpOUSXvTjM/0.jpg)](https://www.youtube.com/watch?v=4qpOUSXvTjM)
+
 Unix only for now - edit depends on freetype.
 
 ## Keybinds
