@@ -71,6 +71,11 @@ typedef struct SyntaxHighlighting {
     SyntaxGroup *groups;
 } SyntaxHighlighting;
 
+typedef struct SyntaxRange {
+    U32 start, end;
+    RGBA8 colour;
+} SyntaxRange;
+
 typedef struct Editor {
     Arena *arena;
     UndoStack undo_stack;
@@ -84,7 +89,9 @@ typedef struct Editor {
     I64 text_length;
     
     U32 *line_lookup;
+    SyntaxRange *syntax_lookup;
     U32 line_count;
+    U32 syntax_range_count;
 
     // a <= b always
     I64 selection_a;

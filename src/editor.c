@@ -31,7 +31,10 @@ void        editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
 // same as above, but does not add to the undo stack
 void        editor_text_remove_raw(Editor *ed, I64 start, I64 end);
 void        editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length);
+
+void        editor_remake_caches(Editor *ed);
 void        editor_remake_line_lookup(Editor *ed);
+void        editor_remake_syntax_lookup(Editor *ed);
 
 static U64 int_to_string(Arena *arena, I64 n);
 
@@ -143,6 +146,7 @@ Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
         .text = arena_alloc(arena, TEXT_MAX_LENGTH, page_size()),
         .search_matches = arena_alloc(arena, SEARCH_MAX_LENGTH, page_size()),
         .line_lookup = arena_alloc(arena, MAX_LINE_LOOKUP_SIZE, page_size()),
+        .syntax_lookup = arena_alloc(arena, MAX_SYNTAX_LOOKUP_SIZE, page_size()),
     };
     ed->arena = arena;
     panel->data = ed;
@@ -800,7 +804,7 @@ void editor_update(Panel *panel) { TRACE
         } else {
             expect(0);
         }
-
+        
         *ui_push_glyph(ui) = (Glyph) {
             .x = selection_bar_v.x,
             .y = selection_bar_v.y,
@@ -816,7 +820,7 @@ void editor_update(Panel *panel) { TRACE
         if (a < byte_visible_start) a = byte_visible_start;
         if (b > byte_visible_end) b = byte_visible_end;
         F32 line_i = (F32)editor_line_index(ed, a);
-
+        
         while (1) {
             F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
             F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
@@ -872,82 +876,34 @@ void editor_update(Panel *panel) { TRACE
     }
 
     // WRITE TEXT GLYPHS ----------------------------------------------------
-
-    I64 text_length = ed->text_length;
-    F32 line = 0.f;
+    
+    F32 line_start = (F32)editor_line_index(ed, byte_visible_start);
+    F32 line_y = (line_start - ed->scroll_y_visual) * font_height + text_v.h / 2.f;
     F32 pen_x = 0.f;
+    U32 syntax_range_idx = 0;
     
-    SyntaxGroup *current_syntax_group = NULL;
-    
-    for (I64 i = 0; i < text_length; ++i) {
+    for (I64 i = byte_visible_start; i < byte_visible_end; ++i) {
         U8 ch = ed->text[i];
-
-        // compute syntax highlighting
-        RGBA8 text_colour;
-        if (current_syntax_group == NULL) {
-            U8 ch_next = editor_text(ed, i+1);
-
-            U64 group_count = ed->syntax.group_count; 
-            for (U64 j = 0; j < group_count; ++j) {
-                SyntaxGroup *group = &ed->syntax.groups[j];
-                U8 *start_chars = group->start_chars;
-                bool match_0 = start_chars[0] == ch;
-                bool match_1 = start_chars[1] == 0 || start_chars[1] == ch_next;
-
-                if (match_0 & match_1) {
-                    current_syntax_group = group;
-                    break;
-                }
-            }
-            
-            text_colour = current_syntax_group ? current_syntax_group->colour : (RGBA8) COLOUR_FOREGROUND;
-        } else {
-            text_colour = current_syntax_group ? current_syntax_group->colour : (RGBA8) COLOUR_FOREGROUND;
-            
-            U8 ch_prev = editor_text(ed, i-1);
-            U8 *end_chars = current_syntax_group->end_chars;
-            bool end;
-            I64 end_count;
-            if (end_chars[1] == 0) {
-                end = end_chars[0] == ch;
-                end_count = 1;
-            } else {
-                end = end_chars[0] == ch_prev && end_chars[1] == ch;
-                end_count = 2;
-            }
-            
-            // If there are an even number of escape characters before
-            // the end characters, then they all escape each other. Otherwise,
-            // the first end character is escaped, and we do not end this group.
-            U8 escape = current_syntax_group->escape;
-            if (end && escape != 0) {
-                I64 escape_count = 0;
-                while (editor_text(ed, i-end_count-escape_count) == escape)
-                    escape_count++;
-                end &= (escape_count & 1) == 0; 
-            }
-            
-            if (end)
-                current_syntax_group = NULL;
-        }
-
         if (ch == '\n') {
-            line += 1.f;
+            line_y += font_height;
             pen_x = 0.f;
             continue;
         }
+        
+        RGBA8 text_colour = (RGBA8)COLOUR_FOREGROUND;
+        while (syntax_range_idx != ed->syntax_range_count) {
+            SyntaxRange *range = &ed->syntax_lookup[syntax_range_idx];
+            if (range->end < i) {
+                ++syntax_range_idx;
+                continue;
+            }
+            
+            if (range->start <= i)
+                text_colour = range->colour;
+            break;
+        }
 
-        // bounds checking -----
-
-        F32 line_offset_from_scroll = line - ed->scroll_y_visual;
-        F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
-
-        if (line_y + font_height < 0.f) continue;
-        if (line_y > text_v.h) break;
-
-        // if is in text_v ----
-
-        F32 pen_y = text_v.y + line_y + font_height;
+        F32 pen_y = line_y + font_height;
 
         U32 glyph_idx = glyph_lookup_idx(CODE_FONT_SIZE, ch);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
@@ -1254,15 +1210,15 @@ int editor_load_filepath(Editor *ed, const U8 *filepath, U32 filepath_length) { 
         ed->filepath = NULL;
         ed->filepath_length = 0;
     }
-    editor_remake_line_lookup(ed);
+    SyntaxHighlighting *syntax = syntax_for_path(arena_filepath, filepath_length);
+    ed->syntax = syntax ? *syntax : (SyntaxHighlighting){0};
 
     ed->selection_group = Group_Line;
     ed->selection_a = 0;
     ed->selection_b = editor_group(ed, Group_Line, 0).end;
     ed->flags &= ~(U32)EditorFlag_Unsaved;
     
-    SyntaxHighlighting *syntax = syntax_for_path(arena_filepath, filepath_length);
-    ed->syntax = syntax ? *syntax : (SyntaxHighlighting){0};
+    editor_remake_caches(ed);
 
     return 0;
 }
@@ -1508,7 +1464,7 @@ void editor_text_remove_raw(Editor *ed, I64 start, I64 end) { TRACE
         ed->text[ed->text_length++] = '\n';
     }
     
-    editor_remake_line_lookup(ed);
+    editor_remake_caches(ed);
 }
 
 void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
@@ -1555,7 +1511,78 @@ void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
         ed->text[ed->text_length++] = '\n';
     }
     
+    editor_remake_caches(ed);
+}
+
+void editor_remake_caches(Editor *ed) {
+    Timer t = timer_start();
     editor_remake_line_lookup(ed);
+    printf("%f ms line\n", timer_lap_ms(&t));
+    editor_remake_syntax_lookup(ed);
+    printf("%f ms syntax\n", timer_lap_ms(&t));
+}
+
+void editor_remake_syntax_lookup(Editor *ed) {
+    U32 syntax_range = 0;
+    U32 text_length = (U32)ed->text_length;
+
+    SyntaxGroup *current_syntax_group = NULL;
+    SyntaxRange *current_range = NULL;
+    
+    for (U32 i = 0; i < text_length; ++i) {
+        U8 ch = ed->text[i];
+        
+        if (current_syntax_group == NULL) {
+            U8 ch_next = editor_text(ed, i+1);
+            U64 group_count = ed->syntax.group_count;
+             
+            for (U64 j = 0; j < group_count; ++j) {
+                SyntaxGroup *group = &ed->syntax.groups[j];
+                U8 *start_chars = group->start_chars;
+                bool match_0 = start_chars[0] == ch;
+                bool match_1 = start_chars[1] == 0 || start_chars[1] == ch_next;
+    
+                if (match_0 & match_1) {
+                    current_syntax_group = group;
+                    current_range = &ed->syntax_lookup[syntax_range++];
+                    current_range->start = i;
+                    current_range->colour = group->colour;
+                    break;
+                }
+            }
+        } else {
+            U8 ch_prev = editor_text(ed, i-1);
+            U8 *end_chars = current_syntax_group->end_chars;
+            bool end;
+            I64 end_count;
+            if (end_chars[1] == 0) {
+                end = end_chars[0] == ch;
+                end_count = 1;
+            } else {
+                end = end_chars[0] == ch_prev && end_chars[1] == ch;
+                end_count = 2;
+            }
+            
+            // If there are an even number of escape characters before
+            // the end characters, then they all escape each other. Otherwise,
+            // the first end character is escaped, and we do not end this group.
+            U8 escape = current_syntax_group->escape;
+            if (end && escape != 0) {
+                I64 escape_count = 0;
+                while (editor_text(ed, i-end_count-escape_count) == escape)
+                    escape_count++;
+                end &= (escape_count & 1) == 0; 
+            }
+            
+            if (end) {
+                current_range->end = i;
+                current_range = NULL;
+                current_syntax_group = NULL;
+            }
+        }
+    }
+    
+    ed->syntax_range_count = syntax_range;
 }
 
 void editor_remake_line_lookup(Editor *ed) {

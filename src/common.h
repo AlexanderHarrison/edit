@@ -84,6 +84,7 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 #define TEXT_MAX_LENGTH (1ull << 28)
 #define SEARCH_MAX_LENGTH (64ul*MB)
 #define MAX_LINE_LOOKUP_SIZE (64ul*MB)
+#define MAX_SYNTAX_LOOKUP_SIZE (64ul*MB)
 
 #define UNDO_STACK_SIZE (64ul*MB)
 #define UNDO_TEXT_SIZE (64ul*MB)
