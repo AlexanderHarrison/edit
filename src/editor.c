@@ -1310,8 +1310,8 @@ Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
     while (start > 0 && char_whitespace(editor_text(ed, start)))
         start--;
 
-    U8 c = editor_text(ed, start);
     bool (*char_fn)(U8 c);
+    U8 c = editor_text(ed, start);
     if (char_word_like(c)) {
         char_fn = char_word_like;
     } else if (char_mathematic(c)) {
@@ -1324,9 +1324,9 @@ Range editor_group_range_word(Editor *ed, I64 byte) { TRACE
         start--;
 
     I64 end = start+1;
-    while (char_fn(editor_text(ed, end)))
+    while (end < ed->text_length && char_fn(editor_text(ed, end)))
         end++;
-    while (char_whitespace(editor_text(ed, end)))
+    while (end < ed->text_length && (char_whitespace(editor_text(ed, end))))
         end++;
 
     return (Range) { start, end };
