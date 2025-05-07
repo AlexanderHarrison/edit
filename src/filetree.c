@@ -247,7 +247,7 @@ void filetree_update(Panel *panel) { TRACE
                 Panel *target_editor = panel_lookup(panel->ui, ft->target_editor_handle);
                 if (target_editor != NULL) {
                     Editor *ed = target_editor->data;
-                    editor_load_filepath(ed, filepath);
+                    editor_load_filepath(ed, filepath, my_strlen(filepath));
                     panel_focus_queued(target_editor);
                 }
                 panel_destroy_queued(panel);
@@ -318,14 +318,14 @@ void filetree_update(Panel *panel) { TRACE
     // RENDER ----------------------------------------------------
 
     Rect filetree_v = panel->viewport;
-    F32 y = filetree_v.y + CODE_LINE_SPACING;
+    F32 y = filetree_v.y; 
+    F32 font_height = font_height_px[CODE_FONT_SIZE]; 
 
     // write selection rect
-    F32 descent = font_atlas->descent[CODE_FONT_SIZE];
     *ui_push_glyph(ui) = (Glyph) {
         .x = filetree_v.x,
-        .y = filetree_v.y + (F32)(ft->file_select_row + 2) * CODE_LINE_SPACING - descent,
-        .glyph_idx = special_glyph_rect((U32)filetree_v.w, (U32)CODE_LINE_SPACING),
+        .y = y + (F32)(ft->file_select_row + 2) * font_height,
+        .glyph_idx = special_glyph_rect((U32)filetree_v.w, (U32)font_height),
         .colour = COLOUR_SELECT,
     };
 
@@ -336,9 +336,9 @@ void filetree_update(Panel *panel) { TRACE
         ft->name_buffer + root_dir->name_offset,
         font_atlas,
         (RGBA8) COLOUR_RED, CODE_FONT_SIZE,
-        filetree_v.x, y, filetree_v.x + filetree_v.w
+        filetree_v.x, 0, filetree_v.x + filetree_v.w
     );
-    y += CODE_LINE_SPACING;
+    y += font_height;
 
     // write search buffer
     ui_push_string_terminated(
@@ -348,7 +348,7 @@ void filetree_update(Panel *panel) { TRACE
         (RGBA8) COLOUR_GREEN, CODE_FONT_SIZE,
         filetree_v.x, y, filetree_v.x + filetree_v.w
     );
-    y += CODE_LINE_SPACING;
+    y += font_height;
 
     // write entry rows
     for (I64 row_i = 0; row_i < ft->row_count; ++row_i) {
@@ -368,7 +368,7 @@ void filetree_update(Panel *panel) { TRACE
                 row_colour, CODE_FONT_SIZE,
                 x, y, filetree_v.x + filetree_v.w
             );
-            y += CODE_LINE_SPACING;
+            y += font_height;
         } else if (row->entry_type == EntryType_File) {
             ui_push_string_terminated(
                 ui,
@@ -377,7 +377,7 @@ void filetree_update(Panel *panel) { TRACE
                 (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
                 x, y, filetree_v.x + filetree_v.w
             );
-            y += CODE_LINE_SPACING;
+            y += font_height;
         } else {
             expect(0);
         }
@@ -417,7 +417,7 @@ static void filetree_remake_rows_inner(FileTree *ft, Dir *parent, U32 depth) {
             };
         }
 
-        filename += strlen((char*)filename) + 1;
+        filename += my_strlen(filename) + 1;
     }
 }
 

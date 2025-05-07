@@ -18,19 +18,19 @@ typedef struct GlyphSlice {
     U64 count;
 } GlyphSlice;
 
-typedef struct {
+typedef struct AtlasLocation {
     U32 x, y;
     U32 width;
     U32 height;
 } AtlasLocation;
 
-typedef struct {
+typedef struct GlyphInfo {
     F32 offset_x, offset_y;
     F32 advance_width;
     F32 unused;
 } GlyphInfo;
 
-typedef struct {
+typedef struct FontAtlas {
     VkImage atlas_image;
     VkDeviceMemory atlas_image_memory;
     VkImageView atlas_image_view;

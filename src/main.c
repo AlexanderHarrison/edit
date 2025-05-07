@@ -1536,8 +1536,8 @@ static int max_i(int a, int b) { TRACE
     return a > b ? a : b;
 }
 
-U8 *copy_cstr(Arena *arena, const char *str) {
-    U64 str_len = strlen(str);
+U8 *copy_cstr(Arena *arena, const U8 *str) {
+    U64 str_len = my_strlen(str);
     U8 *new_str = arena_alloc(arena, str_len + 1, 1);
     memcpy(new_str, str, str_len + 1);
     return new_str;

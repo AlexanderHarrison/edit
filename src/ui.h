@@ -129,6 +129,6 @@ Dims ui_push_string_multiline(
     const U8 *str, U64 length,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
-    F32 x, F32 y, F32 y_increment,
+    F32 x, F32 y,
     F32 max_x, F32 max_y
 );

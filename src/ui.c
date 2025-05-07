@@ -439,6 +439,7 @@ F32 ui_push_string_terminated(
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_x
 ) { TRACE
+    y += font_height_px[font_size] + font_atlas->descent[font_size];
     F32 width = 0.f;
     while (1) {
         U8 ch = *str;
@@ -469,6 +470,7 @@ F32 ui_push_string(
     RGBA8 colour, U64 font_size,
     F32 x, F32 y, F32 max_x
 ) { TRACE
+    y += font_height_px[font_size] + font_atlas->descent[font_size];
     F32 width = 0.f;
     for (U64 i = 0; i < length; ++i) {
         U8 c = str[i];
@@ -477,7 +479,7 @@ F32 ui_push_string(
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
         if (x + width + info.advance_width <= max_x) {
-            ui->glyphs[ui->glyph_count++] = (Glyph) {
+            *ui_push_glyph(ui) = (Glyph) {
                 .x = x + width + info.offset_x,
                 .y = y + info.offset_y,
                 .glyph_idx = glyph_idx,
@@ -494,11 +496,13 @@ Dims ui_push_string_multiline(
     const U8 *str, U64 length,
     FontAtlas *font_atlas,
     RGBA8 colour, U64 font_size,
-    F32 x, F32 y, F32 y_increment,
+    F32 x, F32 y,
     F32 max_x, F32 max_y
 ) {
+    F32 y_increment = font_height_px[font_size];
+
     Dims dims = {0.f, 0.f};
-    while (y + y_increment <= max_y) {
+    while (y <= max_y) {
         F32 width = ui_push_string(
             ui, 
             str, length,

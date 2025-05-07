@@ -32,6 +32,7 @@ typedef enum Mode {
     Mode_Normal,
     Mode_Insert,
     Mode_Search,
+    Mode_Replace,
     Mode_QuickMove,
 } Mode;
 
@@ -81,6 +82,9 @@ typedef struct Editor {
 
     U8 *text;
     I64 text_length;
+    
+    U32 *line_lookup;
+    U32 line_count;
 
     // a <= b always
     I64 selection_a;
@@ -90,6 +94,8 @@ typedef struct Editor {
     Mode mode;
     U8 *mode_text;
     I64 mode_text_length;
+    U8 *mode_text_alt;
+    I64 mode_text_alt_length;
     I64 insert_cursor;
     I64 search_a;
     I64 search_b;
@@ -109,7 +115,10 @@ void
 editor_update(Panel *panel);
 
 int
-editor_load_filepath(Editor *ed, const U8 *filepath);
+editor_load_filepath(Editor *ed, const U8 *filepath, U32 filepath_length);
+
+void
+editor_goto_line(Editor *ed, I64 line_idx);
 
 static inline I64 clamp(I64 n, I64 low, I64 high) {
     if (n < low) return low;

@@ -17,6 +17,7 @@ I64         editor_line_index(Editor *ed, I64 byte);
 I64         editor_byte_index(Editor *ed, I64 line);
 Rect        editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *text_v);
 void        editor_selection_trim(Editor *ed);
+Range       editor_range_trim(Editor *ed, Range range);
 Indices     editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end);
 
 void        editor_undo(Editor *ed);
@@ -30,6 +31,7 @@ void        editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
 // same as above, but does not add to the undo stack
 void        editor_text_remove_raw(Editor *ed, I64 start, I64 end);
 void        editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length);
+void        editor_remake_line_lookup(Editor *ed);
 
 static U64 int_to_string(Arena *arena, I64 n);
 
@@ -37,7 +39,7 @@ static U64 int_to_string(Arena *arena, I64 n);
 
 #define SYNTAX_COMMENT_SLASHES      { {'/', '/'}, {'\n'}, 0, COLOUR_COMMENT }
 #define SYNTAX_COMMENT_SLASH_STAR   { {'/', '*'}, {'*', '/'}, 0, COLOUR_COMMENT }
-#define SYNTAX_COMMENT_HASHTAG      { {'#'}, {'\n'}, 0, COLOUR_COMMENT }
+#define SYNTAX_COMMENT_HASHTAG      { {'#'}, {'\n'}, 0, COLOUR_COMMENT }  
 #define SYNTAX_STRING_DOUBLE_QUOTES { {'"'}, {'"'}, '\\', COLOUR_STRING }
 #define SYNTAX_STRING_SINGLE_QUOTES { {'\''}, {'\''}, '\\', COLOUR_STRING }
 
@@ -137,14 +139,17 @@ Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
         .undo_stack = undo_create(arena),
         .selection_group = Group_Line,
         .mode_text = arena_alloc(arena, MODE_TEXT_MAX_LENGTH, 16),
+        .mode_text_alt = arena_alloc(arena, MODE_TEXT_MAX_LENGTH, 16),
         .text = arena_alloc(arena, TEXT_MAX_LENGTH, page_size()),
         .search_matches = arena_alloc(arena, SEARCH_MAX_LENGTH, page_size()),
+        .line_lookup = arena_alloc(arena, MAX_LINE_LOOKUP_SIZE, page_size()),
     };
     ed->arena = arena;
     panel->data = ed;
     panel->name = "editor";
-
-    expect(editor_load_filepath(ed, filepath) == 0);
+    
+    if (filepath)
+        expect(editor_load_filepath(ed, filepath, my_strlen(filepath)) == 0);
 
     return panel;
 }
@@ -185,7 +190,7 @@ void editor_update(Panel *panel) { TRACE
     UI *ui = panel->ui;
     W *w = ui->w;
     FontAtlas *font_atlas = ui->atlas;
-
+    
     // UPDATE ---------------------------------------------------------------
     
     // state switch
@@ -207,6 +212,10 @@ void editor_update(Panel *panel) { TRACE
 
             if (ctrl && !shift && is(pressed | repeating, key_mask(GLFW_KEY_R)))
                 editor_redo(ed);
+                
+            if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_O))) {
+                // TODO run command
+            }
 
             if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_H)))
                 editor_group_expand(ed);
@@ -351,10 +360,10 @@ void editor_update(Panel *panel) { TRACE
 
             if (!ctrl && is(pressed, key_mask(GLFW_KEY_P))) {
                 I64 paste_idx = shift ? ed->selection_a : ed->selection_b;
-                const char *text = glfwGetClipboardString(NULL);
+                const U8 *text = (const U8*) glfwGetClipboardString(NULL);
                 if (text != NULL) {
                     U8 *text_owned = copy_cstr(&panel->ui->w->frame_arena, text);
-                    U32 len = (U32)strlen(text);
+                    U32 len = my_strlen(text);
                     editor_text_insert(ed, paste_idx, text_owned, len);
                     ed->selection_a = paste_idx;
                     ed->selection_b = paste_idx + len;
@@ -368,21 +377,24 @@ void editor_update(Panel *panel) { TRACE
                 if (!shift) {
                     editor_open_jumplist(panel);
                 } else {
-                    Range paragraph = editor_group(ed, Group_Paragraph, ed->selection_a);
-                    if (paragraph.start < 0) paragraph.start = 0;
-                    if (paragraph.end > ed->text_length) paragraph.end = ed->text_length;
-                    if (paragraph.end < paragraph.start) {
-                        I64 end = paragraph.end;
-                        paragraph.end = paragraph.start;
-                        paragraph.start = end;
+                    Range para = editor_group(ed, Group_Paragraph, ed->selection_a);
+                    if (para.start < 0) para.start = 0;
+                    if (para.end > ed->text_length) para.end = ed->text_length;
+                    if (para.end < para.start) {
+                        I64 end = para.end;
+                        para.end = para.start;
+                        para.start = end;
                     }
+                    
+                    while (para.start < para.end && char_whitespace(editor_text(ed, para.end-1)))
+                        para.end--;
                      
                     JumpPoint current_point = {
                         .filepath = ed->filepath,
                         .filepath_len = ed->filepath_length,
-                        .text = &ed->text[paragraph.start],
-                        .text_len = (U32)(paragraph.end - paragraph.start),
-                        .line_idx = editor_line_index(ed, paragraph.start), 
+                        .text = &ed->text[para.start],
+                        .text_len = (U32)(para.end - para.start),
+                        .line_idx = editor_line_index(ed, ed->selection_a), 
                     };
                     editor_jumplist_add(panel, current_point);
                 }
@@ -541,6 +553,11 @@ void editor_update(Panel *panel) { TRACE
                 if (ed->mode_text_length > 0)
                     ed->mode_text_length--;
             }
+            
+            if (ctrl && is(pressed, key_mask(GLFW_KEY_R))) {
+                ed->mode = Mode_Replace;
+                ed->mode_text_alt_length = 0;
+            }
 
             ed->search_match_count = 0;
             if (ed->mode_text_length > 0) {
@@ -592,6 +609,45 @@ void editor_update(Panel *panel) { TRACE
 
             break;
         }
+        case Mode_Replace: {
+            for (I64 i = 0; i < w->inputs.char_event_count; ++i) {
+                ed->search_cursor = 0;
+
+                U32 codepoint = w->inputs.char_events[i].codepoint;
+                // enforce ascii for now
+                expect(codepoint < 128);
+
+                U8 codepoint_as_char = (U8)codepoint;
+                ed->mode_text_alt[ed->mode_text_alt_length++] = codepoint_as_char;
+            }
+            
+            if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
+                if (ed->mode_text_alt_length > 0)
+                    ed->mode_text_alt_length--;
+            }
+            
+            bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
+            bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
+            if (esc || caps)
+                ed->mode = Mode_Search;
+            
+            if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) {
+                I64 i = ed->search_match_count;
+                while (i != 0) {
+                    i--;
+                    I64 match_start = ed->search_matches[i];
+                    I64 match_end = match_start + ed->mode_text_length;
+                    editor_text_remove(ed, match_start, match_end);
+                    editor_text_insert(ed, match_start, ed->mode_text_alt, ed->mode_text_alt_length);
+                }
+                
+                ed->selection_group = Group_Line;
+                ed->mode = Mode_Normal;
+            }
+            
+            break;
+        }
+
         case Mode_QuickMove: {
             float speed = shift ? CODE_SCROLL_SPEED_SLOW : CODE_SCROLL_SPEED_FAST;
             
@@ -631,7 +687,7 @@ void editor_update(Panel *panel) { TRACE
 
     // find new scroll y
     {
-        if (ed->mode == Mode_Search) {
+        if (ed->mode == Mode_Search || ed->mode == Mode_Replace) {
             if (ed->search_match_count > 0) {
                 I64 shown_match = ed->search_matches[ed->search_cursor];
                 I64 line_a = editor_line_index(ed, shown_match);
@@ -643,6 +699,7 @@ void editor_update(Panel *panel) { TRACE
         } else {
             I64 line_a = editor_line_index(ed, ed->selection_a);
             I64 line_b = editor_line_index(ed, ed->selection_b);
+            
             ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
         }
     }
@@ -682,6 +739,8 @@ void editor_update(Panel *panel) { TRACE
     text_v.w = viewport->x + viewport->w - text_v.x;
 
     // WRITE SPECIAL GLYPHS -------------------------------------------------
+    
+    F32 font_height = font_height_px[CODE_FONT_SIZE];
 
     // determine visible lines
     I64 byte_visible_start;
@@ -691,8 +750,8 @@ void editor_update(Panel *panel) { TRACE
         I64 a = 0;
         while (1) {
             F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
-            F32 line_y = line_offset_from_scroll * CODE_LINE_SPACING + text_v.h / 2.f;
-            if (line_y + CODE_LINE_SPACING > 0.f) break;
+            F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
+            if (line_y + font_height > 0.f) break;
 
             Range line = editor_group(ed, Group_Line, a);
             if (line.end >= ed->text_length)
@@ -705,7 +764,7 @@ void editor_update(Panel *panel) { TRACE
 
         while (1) {
             F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
-            F32 line_y = line_offset_from_scroll * CODE_LINE_SPACING + text_v.h / 2.f;
+            F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
 
             if (line_y > text_v.h) break;
 
@@ -760,7 +819,7 @@ void editor_update(Panel *panel) { TRACE
 
         while (1) {
             F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
-            F32 line_y = line_offset_from_scroll * CODE_LINE_SPACING + text_v.h / 2.f;
+            F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
             if (line_y > text_v.h) break;
 
             Rect rect = editor_line_rect(ed, font_atlas, a, b, &text_v);
@@ -790,7 +849,7 @@ void editor_update(Panel *panel) { TRACE
             .colour = COLOUR_FOREGROUND,
         };
     }
-    if (ed->mode == Mode_Search) {
+    if (ed->mode == Mode_Search || ed->mode == Mode_Replace) {
         for (I64 i = 0; i < ed->search_match_count; ++i) {
             I64 match_idx = ed->search_matches[i];
 
@@ -819,9 +878,6 @@ void editor_update(Panel *panel) { TRACE
     F32 pen_x = 0.f;
     
     SyntaxGroup *current_syntax_group = NULL;
-    
-    FontSize font_size = CODE_FONT_SIZE;
-    F32 spacing = CODE_LINE_SPACING;
     
     for (I64 i = 0; i < text_length; ++i) {
         U8 ch = ed->text[i];
@@ -884,19 +940,19 @@ void editor_update(Panel *panel) { TRACE
         // bounds checking -----
 
         F32 line_offset_from_scroll = line - ed->scroll_y_visual;
-        F32 line_y = line_offset_from_scroll * CODE_LINE_SPACING + text_v.h / 2.f;
+        F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
 
-        if (line_y + spacing < 0.f) continue;
+        if (line_y + font_height < 0.f) continue;
         if (line_y > text_v.h) break;
 
         // if is in text_v ----
 
-        F32 pen_y = text_v.y + line_y + spacing;
+        F32 pen_y = text_v.y + line_y + font_height;
 
-        U32 glyph_idx = glyph_lookup_idx(font_size, ch);
+        U32 glyph_idx = glyph_lookup_idx(CODE_FONT_SIZE, ch);
         GlyphInfo info = font_atlas->glyph_info[glyph_idx];
 
-        if (pen_x + info.advance_width <= text_v.x + text_v.w) {
+        if (pen_x + info.advance_width <= text_v.w) {
             *ui_push_glyph(ui) = (Glyph) {
                 .x = text_v.x + pen_x + info.offset_x,
                 .y = text_v.y + pen_y + info.offset_y,
@@ -909,7 +965,7 @@ void editor_update(Panel *panel) { TRACE
 
     // WRITE MODE INFO GLYPHS -------------------------------------------------
 
-    if (ed->mode == Mode_Search) {
+    if (ed->mode == Mode_Search || ed->mode == Mode_Replace) {
         Rect mode_info_v = (Rect) {
             .x = text_v.x,
             .y = text_v.y + roundf(text_v.h / 2.f) + MODE_INFO_Y_OFFSET,
@@ -949,7 +1005,7 @@ void editor_update(Panel *panel) { TRACE
         // null terminator
         *(U8*)ARENA_ALLOC(&w->frame_arena, U8) = 0;
 
-        F32 y = mode_info_v.y + mode_info_v.h - MODE_INFO_PADDING;
+        F32 y = mode_info_v.y;
         F32 x = mode_info_v.x + MODE_INFO_PADDING;
         ui_push_string_terminated(
             ui,
@@ -958,15 +1014,35 @@ void editor_update(Panel *panel) { TRACE
             colour, MODE_FONT_SIZE,
             x, y, mode_info_v.x + mode_info_v.w
         );
+        
+        // also draw replacement text for replace mode
+        if (ed->mode == Mode_Replace) {
+            mode_info_v.y += mode_info_v.h + 1;
+            
+            *ui_push_glyph(ui) = (Glyph) {
+                .x = mode_info_v.x,
+                .y = mode_info_v.y,
+                .glyph_idx = special_glyph_rect((U32)mode_info_v.w, (U32)mode_info_v.h),
+                .colour = COLOUR_MODE_INFO,
+            };
+            
+            ui_push_string(
+                ui,
+                ed->mode_text_alt, (U64)ed->mode_text_alt_length,
+                font_atlas,
+                colour, MODE_FONT_SIZE,
+                mode_info_v.x, mode_info_v.y, mode_info_v.x + mode_info_v.w
+            );
+        }
     }
 
     // draw status    
     {
         Rect mode_info_v = (Rect) {
             .x = text_v.x,
-            .y = text_v.y + text_v.h - CODE_LINE_SPACING - BAR_SIZE,
+            .y = text_v.y + text_v.h - font_height - BAR_SIZE,
             .w = text_v.w,
-            .h = CODE_LINE_SPACING + BAR_SIZE,
+            .h = font_height + BAR_SIZE,
         };
     
         *ui_push_glyph(ui) = (Glyph) {
@@ -976,9 +1052,8 @@ void editor_update(Panel *panel) { TRACE
             .colour = COLOUR_FILE_INFO,
         };
     
-        F32 descent = font_atlas->descent[CODE_FONT_SIZE];
         F32 status_x = mode_info_v.x;
-        F32 status_y = mode_info_v.y + descent + CODE_LINE_SPACING;
+        F32 status_y = mode_info_v.y;
         F32 status_max_x = status_x + mode_info_v.w;
         
         // find line number
@@ -990,6 +1065,7 @@ void editor_update(Panel *panel) { TRACE
             case Mode_Insert: {
                 line_i = editor_line_index(ed, ed->insert_cursor);
             } break;
+            case Mode_Replace:
             case Mode_Search: {
                 if (ed->search_match_count) {
                     I64 search_byte = ed->search_matches[ed->search_cursor];  
@@ -1115,9 +1191,10 @@ Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *tex
     F32 y, height;
     {
         F32 scroll_diff = (F32)line_i - ed->scroll_y_visual;
+        F32 font_height = font_height_px[CODE_FONT_SIZE];
         F32 descent = font_atlas->descent[CODE_FONT_SIZE];
-        y = text_v->y + scroll_diff * CODE_LINE_SPACING + text_v->h / 2.f - descent - 1;
-        height = CODE_LINE_SPACING + 1;
+        y = text_v->y + scroll_diff * font_height + text_v->h / 2.f - descent - 1;
+        height = font_height + 1;
     }
 
     return (Rect) { x, y, width, height };
@@ -1154,19 +1231,17 @@ static I64 read_file_to_buffer(U8 *buffer, U64 buffer_size, const U8 *filepath) 
     return fsize;
 }
 
-int editor_load_filepath(Editor *ed, const U8 *filepath) { TRACE
-    if (filepath == NULL) return 0;
-
+int editor_load_filepath(Editor *ed, const U8 *filepath, U32 filepath_length) { TRACE
     // TODO: this leaks - allocates for each opened file
     // Change to reusable staticly sized buffer
-    U32 filepath_length = (U32)strlen((const char*)filepath);
     U8 *arena_filepath = ARENA_ALLOC_ARRAY(ed->arena, U8, filepath_length+1);
-    memcpy(arena_filepath, filepath, filepath_length+1);
+    memcpy(arena_filepath, filepath, filepath_length);
+    arena_filepath[filepath_length] = 0;
 
     editor_clear_file(ed);
     undo_clear(&ed->undo_stack);
 
-    I64 size = read_file_to_buffer(ed->text, TEXT_MAX_LENGTH, filepath);
+    I64 size = read_file_to_buffer(ed->text, TEXT_MAX_LENGTH, arena_filepath);
     if (size >= 0) {
         ed->text_length = size;
         ed->filepath = arena_filepath;
@@ -1179,6 +1254,7 @@ int editor_load_filepath(Editor *ed, const U8 *filepath) { TRACE
         ed->filepath = NULL;
         ed->filepath_length = 0;
     }
+    editor_remake_line_lookup(ed);
 
     ed->selection_group = Group_Line;
     ed->selection_a = 0;
@@ -1359,12 +1435,27 @@ Range editor_group_prev(Editor *ed, Group group, I64 current_group_start) { TRAC
 
 I64 editor_line_index(Editor *ed, I64 byte) { TRACE
     if (byte < 0) return byte;
-    I64 line_i = 0;
-    for (I64 i = 0; i < byte; ++i) {
-        if (editor_text(ed, i) == '\n')
-            line_i++;
+    if (byte >= ed->text_length)
+        return (I64)ed->line_count + (byte - ed->text_length);
+    if (ed->line_count == 0)
+        return byte;
+        
+    I64 a = 0;
+    I64 b = (I64)ed->line_count-1; 
+    U32 *line_lookup = ed->line_lookup;
+    U32 byte_u32 = (U32)byte;
+    
+    while (a <= b) {
+        I64 mid = a + (b - a) / 2;
+        U32 line_a = line_lookup[mid];
+        U32 line_b = line_lookup[mid+1];
+        
+        if (byte_u32 < line_a) b = mid - 1;
+        else if (byte_u32 >= line_b) a = mid + 1;
+        else return mid;
     }
-    return line_i;
+    
+    return a;
 }
 
 I64 editor_byte_index(Editor *ed, I64 line) { TRACE
@@ -1416,6 +1507,8 @@ void editor_text_remove_raw(Editor *ed, I64 start, I64 end) { TRACE
     if (ed->text[ed->text_length-1] != '\n') {
         ed->text[ed->text_length++] = '\n';
     }
+    
+    editor_remake_line_lookup(ed);
 }
 
 void editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
@@ -1461,17 +1554,39 @@ void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
     if (ed->text[ed->text_length-1] != '\n') {
         ed->text[ed->text_length++] = '\n';
     }
+    
+    editor_remake_line_lookup(ed);
 }
 
-void editor_selection_trim(Editor *ed) { TRACE
-    I64 a = ed->selection_a;
-    I64 b = ed->selection_b;
+void editor_remake_line_lookup(Editor *ed) {
+    U32 line_count = 0;
+    ed->line_lookup[line_count++] = 0;
+    
+    I64 text_length = ed->text_length - 1;
+    for (U32 i = 0; i < text_length; ++i) {
+        if (ed->text[i] == '\n')
+            ed->line_lookup[line_count++] = i+1;
+    }
+    
+    ed->line_lookup[line_count] = (U32)ed->text_length;
+    ed->line_count = line_count;
+}
+
+Range editor_range_trim(Editor *ed, Range range) {
+    I64 a = range.start;
+    I64 b = range.end;
     while (a < b && char_whitespace(editor_text(ed, a)))
         a++;
     while (a < b && char_whitespace(editor_text(ed, b-1)))
         b--;
-    ed->selection_a = a;
-    ed->selection_b = b;
+    return (Range) { a, b };
+}
+
+void editor_selection_trim(Editor *ed) { TRACE
+    Range selection = (Range) { ed->selection_a, ed->selection_b };
+    Range new = editor_range_trim(ed, selection);
+    ed->selection_a = new.start;
+    ed->selection_b = new.end;
 }
 
 // UNDO REDO ####################################################################
@@ -1601,4 +1716,13 @@ Indices editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end) {
     }
     
     return indices;
+}
+
+void editor_goto_line(Editor *ed, I64 line_idx) {
+    I64 byte = editor_byte_index(ed, line_idx);
+    Range line = editor_group(ed, Group_Line, byte);
+    ed->selection_a = line.start;
+    ed->selection_b = line.end;
+    ed->selection_group = Group_Line;
+    ed->mode = Mode_Normal;
 }

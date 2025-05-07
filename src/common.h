@@ -14,14 +14,27 @@ typedef enum FontSize {
 } FontSize;
 
 static const F32 font_size_px[FontSize_Count] = {
-    9.f, 13.f, 21.f,
+    9.f, 13.f, 21.f
+};
+
+static const F32 font_height_px[FontSize_Count] = {
+    12.f, 17.f, 26.f
 };
 
 static inline bool is(U64 held, U64 mask) {
     return (held & mask) == mask;
 }
 
-U8 *copy_cstr(Arena *arena, const char *str);
+static inline U32 my_strlen(const U8 *str) {
+    U32 i = 0;
+    while (*str) {
+        str++;
+        i++;
+    }
+    return i;
+}
+
+U8 *copy_cstr(Arena *arena, const U8 *str);
 U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 
 // Config -----------------------------
@@ -29,8 +42,6 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 #define CODE_FONT_SIZE FontSize_13
 #define CODE_SMALL_FONT_SIZE FontSize_9
 #define MODE_FONT_SIZE FontSize_21
-#define CODE_LINE_SPACING 17.f
-#define CODE_SMALL_LINE_SPACING 12.f
 #define CODE_SCROLL_SPEED_SLOW 6.f
 #define CODE_SCROLL_SPEED_FAST 15.f
 
@@ -72,6 +83,7 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 #define MODE_TEXT_MAX_LENGTH 8096
 #define TEXT_MAX_LENGTH (1ull << 28)
 #define SEARCH_MAX_LENGTH (64ul*MB)
+#define MAX_LINE_LOOKUP_SIZE (64ul*MB)
 
 #define UNDO_STACK_SIZE (64ul*MB)
 #define UNDO_TEXT_SIZE (64ul*MB)
@@ -115,11 +127,15 @@ void timer_print(Timer *timer) {
         for (int i = frames-1; i > 0; --i) {
             printf("%s:\n", syms[i]);
         }
-        printf("--------- %fms\n", elapsed);
+        printf("^^^^^^^^^^ %fms\n", elapsed);
         free(syms);
     }
 }
 
+void timer_split(Timer *timer) {
+    timer_print(timer);
+    *timer = timer_start();
+}
 
 #define INIT_TRACE
 #define TRACE Timer __timer __attribute__((__cleanup__(timer_print))) = timer_start();
