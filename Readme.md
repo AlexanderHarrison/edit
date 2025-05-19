@@ -48,11 +48,17 @@ Enter - exit quick move mode at current position
 
 SEARCH MODE ---------------------------------------------------------
   / - enter search mode
+  
+C-r - replace mode
 
 C-j - go to next matched item
 C-k - go to previous matched item
 Esc - exit search mode
 Enter - exit search mode and select current matched item
+
+REPLACE MODE --------------------------------------------------------
+Esc - exit replace mode to search mode
+Enter - replace all
 
 EDIT MODE -----------------------------------------------------------
   c - delete selection and enter edit mode
@@ -77,6 +83,9 @@ C-r - redo
 
   < - unindent lines
   > - indent lines
+  
+  v - comment lines
+  V - uncomment lines
 
   q - close editor if saved
   Q - close editor without saving

@@ -19,6 +19,8 @@ Rect        editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Re
 void        editor_selection_trim(Editor *ed);
 Range       editor_range_trim(Editor *ed, Range range);
 Indices     editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end);
+void        editor_comment_lines(Editor *ed, Arena *arena, Indices lines);
+void        editor_uncomment_lines(Editor *ed, Indices lines);
 
 void        editor_undo(Editor *ed);
 void        editor_redo(Editor *ed);
@@ -325,7 +327,7 @@ void editor_update(Panel *panel) { TRACE
                 I64 copy_length_signed = copy_end - copy_start;
                 if (copy_length_signed > 0) {
                     U32 copy_length = (U32)copy_length_signed;
-                    char *copied = arena_alloc(&panel->ui->w->frame_arena, copy_length+1, 1);
+                    char *copied = arena_alloc(&w->frame_arena, copy_length+1, 1);
                     memcpy(copied, &ed->text[copy_start], copy_length);
                     copied[copy_length] = 0;
                     glfwSetClipboardString(NULL, copied);
@@ -455,6 +457,18 @@ void editor_update(Panel *panel) { TRACE
                 }
             }
             
+            // 'v' - comment lines
+            if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_V))) {
+                Indices lines = editor_find_lines(ed, &w->frame_arena, ed->selection_a, ed->selection_b);
+                editor_comment_lines(ed, &w->frame_arena, lines);
+            }
+            
+            // 'V' - uncomment lines
+            if (!ctrl && shift && is(pressed, key_mask(GLFW_KEY_V))) {
+                Indices lines = editor_find_lines(ed, &w->frame_arena, ed->selection_a, ed->selection_b);
+                editor_uncomment_lines(ed, lines);
+            }
+            
             break;
         }
         case Mode_Insert: {
@@ -538,7 +552,7 @@ void editor_update(Panel *panel) { TRACE
                     editor_text_remove(ed, ed->insert_cursor, ed->insert_cursor+1);
                 }
             }
-
+            
             break;
         }
         case Mode_Search: {
@@ -801,6 +815,8 @@ void editor_update(Panel *panel) { TRACE
             selection_bar_colour = (RGBA8) { 0, 255, 100, 255 };
         } else if (ed->mode == Mode_QuickMove) {
             selection_bar_colour = (RGBA8) { 100, 255, 100, 255 };
+        } else if (ed->mode == Mode_Replace) {
+            selection_bar_colour = (RGBA8) { 255, 100, 100, 255 };
         } else {
             expect(0);
         }
@@ -982,12 +998,16 @@ void editor_update(Panel *panel) { TRACE
                 .colour = COLOUR_MODE_INFO,
             };
             
+            U32 space_idx = glyph_lookup_idx(MODE_FONT_SIZE, ' ');
+            F32 space_size = font_atlas->glyph_info[space_idx].advance_width;
+            y = mode_info_v.y;
+            x = mode_info_v.x + MODE_INFO_PADDING + space_size * 6.f;
             ui_push_string(
                 ui,
                 ed->mode_text_alt, (U64)ed->mode_text_alt_length,
                 font_atlas,
                 colour, MODE_FONT_SIZE,
-                mode_info_v.x, mode_info_v.y, mode_info_v.x + mode_info_v.w
+                x, y, mode_info_v.x + mode_info_v.w
             );
         }
     }
@@ -1740,6 +1760,106 @@ Indices editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end) {
     }
     
     return indices;
+}
+
+// returns true if line comment prefix was found
+static bool editor_line_comment_prefix(Editor *ed, U8 *prefix) {
+    for (U64 i = 0; i < ed->syntax.group_count; ++i) {
+        if (ed->syntax.groups[i].end_chars[0] == '\n') {
+            memcpy(prefix, ed->syntax.groups[i].start_chars, EDITOR_SYNTAX_GROUP_SIZE);
+            return true;
+        }
+    }
+    return false;
+}
+
+static I64 editor_min_indent(Editor *ed, Indices lines) {
+    I64 indent = 99999;
+    for (U64 i = lines.count; i != 0; --i) {
+        I64 line_start = lines.ptr[i-1];
+        Range line = editor_group(ed, Group_Line, line_start);
+        Range trimmed = editor_range_trim(ed, line);
+        if (trimmed.start == trimmed.end)
+            continue;
+        I64 cur_indent = trimmed.start - line_start;
+        if (cur_indent < indent)
+            indent = cur_indent;
+    }
+    
+    if (indent == 99999)
+        return 0;
+    return indent;
+}
+
+void editor_comment_lines(Editor *ed, Arena *arena, Indices lines) {
+    U8 prefix[EDITOR_SYNTAX_GROUP_SIZE];
+    if (!editor_line_comment_prefix(ed, prefix))
+        return;
+        
+    if (lines.count == 0)
+        return;
+    
+    I64 indent = editor_min_indent(ed, lines);
+    
+    for (U64 i = lines.count; i != 0; --i) {
+        Range line = editor_group(ed, Group_Line, lines.ptr[i-1]);
+        
+        bool all_whitespace = true;
+        for (I64 j = line.start; j != line.end; ++j) {
+            if (!char_whitespace(editor_text(ed, j))) {
+                all_whitespace = false;
+                break;
+            }
+        }
+        if (all_whitespace)
+            continue;
+        
+        U8 *comment_text = arena_prealign(arena, 1);
+        
+        bool already_commented = true;
+        for (I64 j = 0; j < EDITOR_SYNTAX_GROUP_SIZE; ++j) {
+            U8 c = prefix[j];
+            if (c == 0) break;
+            if (c != editor_text(ed, line.start + indent + j))
+                already_commented = false;
+            *(U8*)ARENA_ALLOC(arena, U8) = prefix[j];
+        }
+        *(U8*)ARENA_ALLOC(arena, U8) = ' ';
+        
+        if (!already_commented) {
+            I64 comment_length = (I64)(arena->head - comment_text);
+            editor_text_insert(ed, line.start + indent, comment_text, comment_length);
+        }
+    }
+}
+
+void editor_uncomment_lines(Editor *ed, Indices lines) {
+    U8 prefix[EDITOR_SYNTAX_GROUP_SIZE];
+    if (!editor_line_comment_prefix(ed, prefix))
+        return;
+        
+    for (U64 i = lines.count; i != 0; --i) {
+        Range line = editor_group(ed, Group_Line, lines.ptr[i-1]);
+        
+        while (line.start != line.end) {
+            I64 j = 0;
+            for (; j < EDITOR_SYNTAX_GROUP_SIZE; ++j) {
+                U8 c = prefix[j];
+                if (c == 0) break;
+                if (c != editor_text(ed, line.start + j))
+                    goto NEXT_CHAR;
+            }
+            
+            if (editor_text(ed, line.start + j) == ' ')
+                j++;
+            
+            editor_text_remove(ed, line.start, line.start + j);
+            break;
+                
+            NEXT_CHAR:
+            line.start++;
+        }
+    }
 }
 
 void editor_goto_line(Editor *ed, I64 line_idx) {

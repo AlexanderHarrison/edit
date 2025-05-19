@@ -60,8 +60,8 @@ enum EditorFlags {
 };
 
 typedef struct SyntaxGroup {
-    U8 start_chars[2];
-    U8 end_chars[2];
+    U8 start_chars[EDITOR_SYNTAX_GROUP_SIZE];
+    U8 end_chars[EDITOR_SYNTAX_GROUP_SIZE];
     U8 escape;
     RGBA8 colour;
 } SyntaxGroup;
