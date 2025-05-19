@@ -3,6 +3,11 @@ typedef struct Indices {
     I64 *ptr;
 } Indices;
 
+typedef struct Insertion {
+    U64 text_len;
+    U8 *text;
+} Insertion;
+
 UndoStack   undo_create(Arena *arena);
 void        undo_clear(UndoStack *st);
 UndoElem   *undo_record(UndoStack *st, I64 at, U8 *text, I64 text_length, UndoOp op);
@@ -19,7 +24,7 @@ Rect        editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Re
 void        editor_selection_trim(Editor *ed);
 Range       editor_range_trim(Editor *ed, Range range);
 Indices     editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end);
-void        editor_comment_lines(Editor *ed, Arena *arena, Indices lines);
+void        editor_comment_lines(Editor *ed, Indices lines);
 void        editor_uncomment_lines(Editor *ed, Indices lines);
 
 void        editor_undo(Editor *ed);
@@ -30,6 +35,8 @@ void        editor_open_jumplist(Panel *ed_panel);
 void        editor_jumplist_add(Panel *ed_panel, JumpPoint point);
 void        editor_text_remove(Editor *ed, I64 start, I64 end);
 void        editor_text_insert(Editor *ed, I64 at, U8 *text, I64 length);
+// void        editor_text_remove_bulk(Editor *ed, Range *ranges, U64 remove_count);
+// void        editor_text_insert_bulk(Editor *ed, Insertion *insertions, U64 insert_count);
 // same as above, but does not add to the undo stack
 void        editor_text_remove_raw(Editor *ed, I64 start, I64 end);
 void        editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length);
@@ -194,7 +201,6 @@ void editor_update(Panel *panel) { TRACE
     Editor *ed = panel->data;
     Rect *viewport = &panel->viewport;
     UI *ui = panel->ui;
-    W *w = ui->w;
     FontAtlas *font_atlas = ui->atlas;
     
     // UPDATE ---------------------------------------------------------------
@@ -368,7 +374,7 @@ void editor_update(Panel *panel) { TRACE
                 I64 paste_idx = shift ? ed->selection_a : ed->selection_b;
                 const U8 *text = (const U8*) glfwGetClipboardString(NULL);
                 if (text != NULL) {
-                    U8 *text_owned = copy_cstr(&panel->ui->w->frame_arena, text);
+                    U8 *text_owned = copy_cstr(&w->frame_arena, text);
                     U32 len = my_strlen(text);
                     editor_text_insert(ed, paste_idx, text_owned, len);
                     ed->selection_a = paste_idx;
@@ -439,7 +445,7 @@ void editor_update(Panel *panel) { TRACE
             
             // '>' - indent selected lines 
             if (!ctrl && shift && is(pressed, key_mask(GLFW_KEY_PERIOD))) {
-                U8 *spaces = arena_alloc(&panel->ui->w->frame_arena, 4, 1);
+                U8 *spaces = arena_alloc(&w->frame_arena, 4, 1);
                 memset(spaces, ' ', 4);
                 
                 Indices lines = editor_find_lines(ed, &w->frame_arena, ed->selection_a, ed->selection_b);
@@ -460,7 +466,7 @@ void editor_update(Panel *panel) { TRACE
             // 'v' - comment lines
             if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_V))) {
                 Indices lines = editor_find_lines(ed, &w->frame_arena, ed->selection_a, ed->selection_b);
-                editor_comment_lines(ed, &w->frame_arena, lines);
+                editor_comment_lines(ed, lines);
             }
             
             // 'V' - uncomment lines
@@ -1109,7 +1115,7 @@ void editor_open_filetree(Panel *ed_panel, bool expand) {
     panel_focus_queued(filetree_panel);
     if (expand) {
         FileTree *ft = filetree_panel->data;
-        filetree_dir_open_all(ft, &ed_panel->ui->w->frame_arena, ft->dir_tree);
+        filetree_dir_open_all(ft, &w->frame_arena, ft->dir_tree);
     }
 }
 
@@ -1791,7 +1797,9 @@ static I64 editor_min_indent(Editor *ed, Indices lines) {
     return indent;
 }
 
-void editor_comment_lines(Editor *ed, Arena *arena, Indices lines) {
+void editor_comment_lines(Editor *ed, Indices lines) {
+    Arena *frame_arena = &w->frame_arena;
+
     U8 prefix[EDITOR_SYNTAX_GROUP_SIZE];
     if (!editor_line_comment_prefix(ed, prefix))
         return;
@@ -1814,7 +1822,7 @@ void editor_comment_lines(Editor *ed, Arena *arena, Indices lines) {
         if (all_whitespace)
             continue;
         
-        U8 *comment_text = arena_prealign(arena, 1);
+        U8 *comment_text = arena_prealign(frame_arena, 1);
         
         bool already_commented = true;
         for (I64 j = 0; j < EDITOR_SYNTAX_GROUP_SIZE; ++j) {
@@ -1822,12 +1830,12 @@ void editor_comment_lines(Editor *ed, Arena *arena, Indices lines) {
             if (c == 0) break;
             if (c != editor_text(ed, line.start + indent + j))
                 already_commented = false;
-            *(U8*)ARENA_ALLOC(arena, U8) = prefix[j];
+            *(U8*)ARENA_ALLOC(frame_arena, U8) = prefix[j];
         }
-        *(U8*)ARENA_ALLOC(arena, U8) = ' ';
+        *(U8*)ARENA_ALLOC(frame_arena, U8) = ' ';
         
         if (!already_commented) {
-            I64 comment_length = (I64)(arena->head - comment_text);
+            I64 comment_length = (I64)(frame_arena->head - comment_text);
             editor_text_insert(ed, line.start + indent, comment_text, comment_length);
         }
     }

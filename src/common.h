@@ -340,9 +340,10 @@ typedef struct W {
     F32 exp_factor;
 } W;
 
+extern W *w;
+
 VkResult
 gpu_alloc_buffer(
-    W *w,
     VkBuffer buffer, 
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
@@ -350,14 +351,13 @@ gpu_alloc_buffer(
 
 VkResult
 gpu_alloc_image(
-    W *w,
     VkImage image, 
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
 );
 
 void
-gpu_free(W *w, VkDeviceMemory mem);
+gpu_free(VkDeviceMemory mem);
 
 U8 *
 staging_buffer_alloc(StagingBuffer *staging_buffer, U64 size, U64 alignment);

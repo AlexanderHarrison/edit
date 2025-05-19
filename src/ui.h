@@ -65,7 +65,6 @@ typedef struct UIOp {
 
 typedef struct UI {
     Panel *root;
-    W *w;
     FontAtlas *atlas;
     Panel *panel_store;
     Panel *free;
@@ -76,7 +75,7 @@ typedef struct UI {
     U64 op_count;
 } UI;
 
-UI     *ui_create           (W *w, FontAtlas *atlas, Arena *arena);
+UI     *ui_create           (FontAtlas *atlas, Arena *arena);
 void    ui_destroy          (UI *ui);
 void    ui_update           (UI *ui, Rect *viewport);
 UIOp   *ui_push_op          (UI *ui);

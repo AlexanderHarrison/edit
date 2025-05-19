@@ -3,7 +3,7 @@ void    panel_update        (Panel *panel);
 void    panel_destroy_inner (Panel *panel);
 void    panel_destroy_single(Panel *panel);
 
-UI *ui_create(W *w, FontAtlas *atlas, Arena *arena) { TRACE
+UI *ui_create(FontAtlas *atlas, Arena *arena) { TRACE
     UI *ui = arena_alloc(arena, sizeof(UI), alignof(UI));
     arena_alloc(arena, 8ul*KB - 1, 4096);
     arena_alloc(arena, 300ul*KB, 4096);
@@ -12,7 +12,6 @@ UI *ui_create(W *w, FontAtlas *atlas, Arena *arena) { TRACE
     Glyph *glyphs = ARENA_ALLOC_ARRAY(arena, *glyphs, MAX_GLYPHS);
 
     *ui = (UI) {
-        .w = w,
         .atlas = atlas,
         .panel_store = panel_store,
         .free = panel_store,
@@ -79,8 +78,6 @@ Panel *panel_prev(Panel *panel) {
 
 void ui_update(UI *ui, Rect *viewport) { TRACE
     ui->glyph_count = 0;
-
-    W *w = ui->w;
 
     U64 pressed = w->inputs.key_pressed;
     U64 modifiers = w->inputs.modifiers;

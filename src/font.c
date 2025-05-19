@@ -4,7 +4,7 @@
 #define GLYPH_LOOKUP_BUFFER_SIZE (256*sizeof(AtlasLocation)*FontSize_Count)
 #define FONT_ATLAS_SIZE 512
 
-FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
+FontAtlas *font_atlas_create(Arena *arena, const char *ttf_path) { TRACE
     FT_Library library;
     expect(FT_Init_FreeType(&library) == 0);
 
@@ -35,7 +35,6 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
         };
         VK_ASSERT(vkCreateImage(w->device, &info, NULL, &atlas->atlas_image));
         VK_ASSERT(gpu_alloc_image(
-            w,
             atlas->atlas_image,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &atlas->atlas_image_memory
@@ -79,7 +78,6 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
         };
         VK_ASSERT(vkCreateBuffer(w->device, &info, NULL, &atlas->glyph_lookup_buffer));
         VK_ASSERT(gpu_alloc_buffer(
-            w,
             atlas->glyph_lookup_buffer,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &atlas->glyph_lookup_buffer_memory
@@ -236,9 +234,9 @@ FontAtlas *font_atlas_create(W *w, Arena *arena, const char *ttf_path) { TRACE
     return atlas;
 }
 
-void font_atlas_destroy(W *w, FontAtlas *atlas) { TRACE
-    gpu_free(w, atlas->glyph_lookup_buffer_memory);
-    gpu_free(w, atlas->atlas_image_memory);
+void font_atlas_destroy(FontAtlas *atlas) { TRACE
+    gpu_free(atlas->glyph_lookup_buffer_memory);
+    gpu_free(atlas->atlas_image_memory);
     vkDestroyBuffer(w->device, atlas->glyph_lookup_buffer, NULL);
     vkDestroyImage(w->device, atlas->atlas_image, NULL);
     vkDestroyImageView(w->device, atlas->atlas_image_view, NULL);

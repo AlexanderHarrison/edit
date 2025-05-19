@@ -25,17 +25,19 @@
 #define SURFACE_COLOUR_SPACE VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
 #define SURFACE_PRESENT_MODE VK_PRESENT_MODE_IMMEDIATE_KHR
 
-W
+W *w;
+
+void
 window_create(Arena *arena);
 
 void
-window_destroy(W *w);
+window_destroy(void);
 
 VkDescriptorSet
-descriptor_set_glyphs_create(W *w, FontAtlas *font_atlas, VkBuffer glyphs_buffer);
+descriptor_set_glyphs_create(FontAtlas *font_atlas, VkBuffer glyphs_buffer);
 
 void
-descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set);
+descriptor_set_destroy(VkDescriptorSet descriptor_set);
 
 Swapchain *
 swapchain_create(
@@ -60,7 +62,7 @@ glfw_get_current_monitor(GLFWwindow *window);
 
 // WINDOWING FUNCTION #####################################################
 
-W window_create(Arena *arena) { TRACE
+void window_create(Arena *arena) { TRACE    
     // GLFW --------------------------------------------------------------------------------
 
     glfwInit();
@@ -633,7 +635,8 @@ W window_create(Arena *arena) { TRACE
 
     // CREATE W -------------------------------------------------------------------------------
 
-    W w = { 
+    w = ARENA_ALLOC(arena, *w);
+    *w = (W) { 
         window, NULL,
         instance, phy_device, phy_mem_props,
         device, queue,
@@ -653,31 +656,27 @@ W window_create(Arena *arena) { TRACE
     // staging buffer
     SCOPE_TRACE {
         VK_ASSERT(gpu_alloc_buffer(
-            &w, 
-            w.staging_buffer.buffer,
+            w->staging_buffer.buffer,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            &w.staging_buffer.buffer_memory
+            &w->staging_buffer.buffer_memory
         ));
-        VK_ASSERT(vkMapMemory(w.device, w.staging_buffer.buffer_memory, 0, STAGING_BUFFER_SIZE, 0, (void**) &w.staging_buffer.mapped_ptr));
-        staging_buffer_reset(&w.staging_buffer);
+        VK_ASSERT(vkMapMemory(w->device, w->staging_buffer.buffer_memory, 0, STAGING_BUFFER_SIZE, 0, (void**) &w->staging_buffer.mapped_ptr));
+        staging_buffer_reset(&w->staging_buffer);
     }
 
     // static uniform buffer
     VK_ASSERT(gpu_alloc_buffer(
-        &w, 
-        w.static_data_uniform_buffer,
+        w->static_data_uniform_buffer,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        &w.static_data_uniform_buffer_memory
+        &w->static_data_uniform_buffer_memory
     ));
 
     // END -----------------------------------------------------------------------------------
-
-    return w;
 }
 
 // HELDER FUNCTION DEFINITIONS #####################################################
 
-void window_destroy(W *w) { TRACE
+void window_destroy(void) { TRACE
     VkDevice device = w->device;
     VkInstance instance = w->instance;
 
@@ -691,7 +690,7 @@ void window_destroy(W *w) { TRACE
 
     vkDestroyDescriptorPool(device, w->descriptor_pool, NULL);
 
-    gpu_free(w, w->staging_buffer.buffer_memory);
+    gpu_free(w->staging_buffer.buffer_memory);
     vkDestroyBuffer(device, w->staging_buffer.buffer, NULL);
 
     vkDestroySemaphore(device, w->render_finished, NULL);
@@ -706,12 +705,11 @@ void window_destroy(W *w) { TRACE
     glfwTerminate();
 }
 
-void gpu_free(W *w, VkDeviceMemory mem) { TRACE
+void gpu_free(VkDeviceMemory mem) { TRACE
     vkFreeMemory(w->device, mem, NULL);
 }
 
 static VkResult gpu_alloc(
-    W *w,
     VkMemoryRequirements *mem_req,
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
@@ -742,27 +740,25 @@ static VkResult gpu_alloc(
 }
 
 VkResult gpu_alloc_buffer(
-    W *w,
     VkBuffer buffer, 
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
 ) { TRACE
     VkMemoryRequirements mem_req;
     vkGetBufferMemoryRequirements(w->device, buffer, &mem_req);
-    VkResult res = gpu_alloc(w, &mem_req, props, mem);
+    VkResult res = gpu_alloc(&mem_req, props, mem);
     if (res != VK_SUCCESS) return res;
     return vkBindBufferMemory(w->device, buffer, *mem, 0);
 }
 
 VkResult gpu_alloc_image(
-    W *w,
     VkImage image, 
     VkMemoryPropertyFlags props, 
     VkDeviceMemory *mem
 ) { TRACE
     VkMemoryRequirements mem_req;
     vkGetImageMemoryRequirements(w->device, image, &mem_req);
-    VkResult res = gpu_alloc(w, &mem_req, props, mem);
+    VkResult res = gpu_alloc(&mem_req, props, mem);
     if (res != VK_SUCCESS) return res;
     return vkBindImageMemory(w->device, image, *mem, 0);
 }
@@ -823,7 +819,7 @@ void staging_buffer_reset(StagingBuffer *staging_buffer) { TRACE
 }
 
 VkDescriptorSet descriptor_set_glyphs_create(
-    W *w, FontAtlas *font_atlas, VkBuffer glyphs_buffer
+    FontAtlas *font_atlas, VkBuffer glyphs_buffer
 ) { TRACE
     VkDescriptorSet descriptor_set;
     {
@@ -906,7 +902,7 @@ VkDescriptorSet descriptor_set_glyphs_create(
     return descriptor_set;
 }
 
-void descriptor_set_destroy(W *w, VkDescriptorSet descriptor_set) { TRACE
+void descriptor_set_destroy(VkDescriptorSet descriptor_set) { TRACE
     vkFreeDescriptorSets(w->device, w->descriptor_pool, 1, &descriptor_set);
 }
 
@@ -918,23 +914,22 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     // gltf window and vulkan -------------------------------------------
 
-    W w = window_create(&static_arena);
-    glfwSetWindowUserPointer(w.window, &w);
-    glfwSetCharCallback(w.window, glfw_callback_char);
-    glfwSetKeyCallback(w.window, glfw_callback_key);
-    glfwSetCursorPosCallback(w.window, glfw_callback_mouse_pos);
-    glfwSetMouseButtonCallback(w.window, glfw_callback_mouse_button);
-    glfwSetScrollCallback(w.window, glfw_callback_scroll);
+    window_create(&static_arena);
+    glfwSetCharCallback(w->window, glfw_callback_char);
+    glfwSetKeyCallback(w->window, glfw_callback_key);
+    glfwSetCursorPosCallback(w->window, glfw_callback_mouse_pos);
+    glfwSetMouseButtonCallback(w->window, glfw_callback_mouse_button);
+    glfwSetScrollCallback(w->window, glfw_callback_scroll);
 
     // font atlas -------------------------------------------------------
 
     const char *ttf_path = "/usr/share/fonts/truetype/roboto/mono/RobotoMono-Medium.ttf";
     //const char *ttf_path = "/usr/share/fonts/TTF/IosevkaFixed-Regular.ttf";
-    FontAtlas *font_atlas = font_atlas_create(&w, &static_arena, ttf_path);
+    FontAtlas *font_atlas = font_atlas_create(&static_arena, ttf_path);
 
     // UI ---------------------------------------------------------------
 
-    UI *ui = ui_create(&w, font_atlas, &static_arena);
+    UI *ui = ui_create(font_atlas, &static_arena);
 
     // Editor -----------------------------------------------------------
 
@@ -960,9 +955,8 @@ int main(int argc, char *argv[]) { INIT_TRACE
             .size = MAX_GLYPHS_SIZE,
             .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         };
-        VK_ASSERT(vkCreateBuffer(w.device, &info, NULL, &glyph_draw_buffer));
+        VK_ASSERT(vkCreateBuffer(w->device, &info, NULL, &glyph_draw_buffer));
         VK_ASSERT(gpu_alloc_buffer(
-            &w,
             glyph_draw_buffer,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &glyph_draw_buffer_memory
@@ -971,60 +965,60 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     // alloc descriptor sets --------------------------------------------
 
-    VkDescriptorSet descriptor_set_glyphs = descriptor_set_glyphs_create(&w, font_atlas, glyph_draw_buffer);
+    VkDescriptorSet descriptor_set_glyphs = descriptor_set_glyphs_create(font_atlas, glyph_draw_buffer);
 
     F32 frame = 10.0;
-    while (!glfwWindowShouldClose(w.window)) {
+    while (!glfwWindowShouldClose(w->window)) {
         bool has_ops = ui->op_count != 0;
         ui_flush_ops(ui);
 
         // INPUTS -------------------------------------------------------------
 
-        w.inputs.char_event_count = 0;
-        w.inputs.key_event_count = 0;
-        w.inputs.mouse_held_prev = w.inputs.mouse_held;
-        w.inputs.scroll = 0.f;
-        w.inputs.key_held_prev = w.inputs.key_held;
-        w.inputs.key_repeating = 0;
-        w.inputs.key_special_pressed = 0;
-        w.inputs.key_special_repeating = 0;
-        if (!has_ops && !w.force_update)
+        w->inputs.char_event_count = 0;
+        w->inputs.key_event_count = 0;
+        w->inputs.mouse_held_prev = w->inputs.mouse_held;
+        w->inputs.scroll = 0.f;
+        w->inputs.key_held_prev = w->inputs.key_held;
+        w->inputs.key_repeating = 0;
+        w->inputs.key_special_pressed = 0;
+        w->inputs.key_special_repeating = 0;
+        if (!has_ops && !w->force_update)
             glfwWaitEventsTimeout(0.1);
         else
             glfwPollEvents();
-        w.inputs.mouse_in_window = glfwGetWindowAttrib(w.window, GLFW_HOVERED) != 0;
-        w.inputs.mouse_pressed = w.inputs.mouse_held & ~w.inputs.mouse_held_prev;
-        w.inputs.mouse_released = w.inputs.mouse_held_prev & ~w.inputs.mouse_held;
-        w.inputs.key_pressed = w.inputs.key_held & ~w.inputs.key_held_prev;
-        w.inputs.key_released = w.inputs.key_held_prev & ~w.inputs.key_held;
-        w.force_update = false;
+        w->inputs.mouse_in_window = glfwGetWindowAttrib(w->window, GLFW_HOVERED) != 0;
+        w->inputs.mouse_pressed = w->inputs.mouse_held & ~w->inputs.mouse_held_prev;
+        w->inputs.mouse_released = w->inputs.mouse_held_prev & ~w->inputs.mouse_held;
+        w->inputs.key_pressed = w->inputs.key_held & ~w->inputs.key_held_prev;
+        w->inputs.key_released = w->inputs.key_held_prev & ~w->inputs.key_held;
+        w->force_update = false;
 
-        if (w.inputs.key_special_pressed & special_mask(GLFW_KEY_F11)) {
-            if (w.monitor == NULL) {
-                w.monitor = glfw_get_current_monitor(w.window);
-                const GLFWvidmode *mode = glfwGetVideoMode(w.monitor);
+        if (w->inputs.key_special_pressed & special_mask(GLFW_KEY_F11)) {
+            if (w->monitor == NULL) {
+                w->monitor = glfw_get_current_monitor(w->window);
+                const GLFWvidmode *mode = glfwGetVideoMode(w->monitor);
                 glfwSetWindowMonitor(
-                    w.window, w.monitor,
+                    w->window, w->monitor,
                     0, 0, mode->width, mode->height,
                     mode->refreshRate
                 );
             } else {
-                w.monitor = NULL;
+                w->monitor = NULL;
                 glfwSetWindowMonitor(
-                    w.window, NULL,
+                    w->window, NULL,
                     0, 0, INITIAL_WIDTH, INITIAL_HEIGHT,
                     GLFW_DONT_CARE
                 );
             }
         }
 
-        GLFWmonitor *monitor = glfw_get_current_monitor(w.window);
+        GLFWmonitor *monitor = glfw_get_current_monitor(w->window);
         if (monitor) {        
             const GLFWvidmode *mode = glfwGetVideoMode(monitor);
             if (mode != NULL) {
                 F32 refresh_rate = (F32)mode->refreshRate;
-                w.refresh_rate = refresh_rate;
-                w.exp_factor = 1.f - (F32)pow(1.f - ANIM_EXP_FACTOR, 60.f/refresh_rate);
+                w->refresh_rate = refresh_rate;
+                w->exp_factor = 1.f - (F32)pow(1.f - ANIM_EXP_FACTOR, 60.f/refresh_rate);
             }
         }
 
@@ -1033,30 +1027,30 @@ int main(int argc, char *argv[]) { INIT_TRACE
         F32 width, height;
         U32 width_i, height_i;
         {
-            width_i = w.sc->width;
-            height_i = w.sc->height;
+            width_i = w->sc->width;
+            height_i = w->sc->height;
             width = (F32)width_i;
             height = (F32)height_i;
         }
 
-        bool x_match = w.static_data_uniform.viewport_size[0] == width;
-        bool y_match = w.static_data_uniform.viewport_size[1] == height;
+        bool x_match = w->static_data_uniform.viewport_size[0] == width;
+        bool y_match = w->static_data_uniform.viewport_size[1] == height;
         if (!x_match || !y_match) {
-            w.static_data_uniform.viewport_size[0] = width;
-            w.static_data_uniform.viewport_size[1] = height;
-            StaticDataUniform *uniform = (StaticDataUniform *)staging_buffer_alloc(&w.staging_buffer, sizeof(StaticDataUniform), 16);
-            *uniform = w.static_data_uniform;
+            w->static_data_uniform.viewport_size[0] = width;
+            w->static_data_uniform.viewport_size[1] = height;
+            StaticDataUniform *uniform = (StaticDataUniform *)staging_buffer_alloc(&w->staging_buffer, sizeof(StaticDataUniform), 16);
+            *uniform = w->static_data_uniform;
 
-            VkBufferCopy *copy = ARENA_ALLOC(&w.frame_arena, *copy);
+            VkBufferCopy *copy = ARENA_ALLOC(&w->frame_arena, *copy);
             *copy = (VkBufferCopy) {
-                .srcOffset = (U64)((U8*)uniform - w.staging_buffer.mapped_ptr),
+                .srcOffset = (U64)((U8*)uniform - w->staging_buffer.mapped_ptr),
                 .dstOffset = 0,
                 .size = sizeof(StaticDataUniform),
             };
             staging_buffer_cmd_copy_to_buffer(
-                &w.staging_buffer,
-                &w.frame_arena,
-                w.static_data_uniform_buffer,
+                &w->staging_buffer,
+                &w->frame_arena,
+                w->static_data_uniform_buffer,
                 1,
                 copy
             );
@@ -1068,24 +1062,24 @@ int main(int argc, char *argv[]) { INIT_TRACE
         ui_update(ui, &viewport);
         U64 glyphs_size = ui->glyph_count * sizeof(Glyph);
 
-        if (w.should_close) glfwSetWindowShouldClose(w.window, GLFW_TRUE);
+        if (w->should_close) glfwSetWindowShouldClose(w->window, GLFW_TRUE);
 
         // write glyphs buffer
 
         if (glyphs_size) {
-            Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w.staging_buffer, glyphs_size, 16);
+            Glyph* staging_glyph_draws = (Glyph*)staging_buffer_alloc(&w->staging_buffer, glyphs_size, 16);
             memcpy(staging_glyph_draws, ui->glyphs, glyphs_size);
 
-            VkBufferCopy *buffer_copy = ARENA_ALLOC(&w.frame_arena, *buffer_copy);
+            VkBufferCopy *buffer_copy = ARENA_ALLOC(&w->frame_arena, *buffer_copy);
             *buffer_copy = (VkBufferCopy) {
-                .srcOffset = (U64)((U8*)staging_glyph_draws - w.staging_buffer.mapped_ptr),
+                .srcOffset = (U64)((U8*)staging_glyph_draws - w->staging_buffer.mapped_ptr),
                 .dstOffset = 0,
                 .size = glyphs_size,
             };
 
             staging_buffer_cmd_copy_to_buffer(
-                &w.staging_buffer,
-                &w.frame_arena,
+                &w->staging_buffer,
+                &w->frame_arena,
                 glyph_draw_buffer,
                 1,
                 buffer_copy
@@ -1096,25 +1090,25 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
         U32 sc_image_idx;
         SCOPE_TRACE {
-            VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
-            VkResult res = vkAcquireNextImageKHR(w.device, w.sc->sc, UINT64_MAX, w.image_available, VK_NULL_HANDLE, &sc_image_idx);
+            VK_ASSERT(vkWaitForFences(w->device, 1, &w->in_flight, VK_TRUE, UINT64_MAX));
+            VkResult res = vkAcquireNextImageKHR(w->device, w->sc->sc, UINT64_MAX, w->image_available, VK_NULL_HANDLE, &sc_image_idx);
 
             if (res != VK_SUCCESS) {
                 if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
                     while (width_i == 0 || height_i == 0) {
                         glfwWaitEvents();
-                        glfwGetFramebufferSize(w.window, (int*)&width_i, (int*)&height_i);
+                        glfwGetFramebufferSize(w->window, (int*)&width_i, (int*)&height_i);
                     }
 
-                    vkDeviceWaitIdle(w.device);
+                    vkDeviceWaitIdle(w->device);
 
-                    swapchain_destroy(w.device, w.sc);
-                    arena_clear(&w.sc_arena);
-                    w.sc = swapchain_create(w.device, w.phy_device, w.surface, w.pass, &w.sc_arena);
+                    swapchain_destroy(w->device, w->sc);
+                    arena_clear(&w->sc_arena);
+                    w->sc = swapchain_create(w->device, w->phy_device, w->surface, w->pass, &w->sc_arena);
 
-                    vkDestroySemaphore(w.device, w.image_available, NULL);
+                    vkDestroySemaphore(w->device, w->image_available, NULL);
                     VkSemaphoreCreateInfo sem_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-                    VK_ASSERT(vkCreateSemaphore(w.device, &sem_info, NULL, &w.image_available));
+                    VK_ASSERT(vkCreateSemaphore(w->device, &sem_info, NULL, &w->image_available));
 
                     continue;
                 } else {
@@ -1122,28 +1116,28 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 }
             }
 
-            VK_ASSERT(vkResetFences(w.device, 1, &w.in_flight));
+            VK_ASSERT(vkResetFences(w->device, 1, &w->in_flight));
         }
 
         // START RECORDING -------------------------------------------------------
 
         SCOPE_TRACE {
-            VK_ASSERT(vkResetCommandBuffer(w.cmd_buffer, 0));
+            VK_ASSERT(vkResetCommandBuffer(w->cmd_buffer, 0));
             VkCommandBufferBeginInfo begin_info = {
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                 .flags = 0,
                 .pInheritanceInfo = NULL,
             };
-            VK_ASSERT(vkBeginCommandBuffer(w.cmd_buffer, &begin_info));
+            VK_ASSERT(vkBeginCommandBuffer(w->cmd_buffer, &begin_info));
         }
 
         // WRITE TRANSFER COMMANDS ------------------------------------------------
 
         SCOPE_TRACE {
             U64 transition_count = 0;
-            VkImageMemoryBarrier *image_barriers = arena_prealign(&w.frame_arena, alignof(VkImageMemoryBarrier));
+            VkImageMemoryBarrier *image_barriers = arena_prealign(&w->frame_arena, alignof(VkImageMemoryBarrier));
 
-            ImageTransitionList *transition = w.staging_buffer.image_transitions;
+            ImageTransitionList *transition = w->staging_buffer.image_transitions;
             for (; transition != NULL; transition = transition->next) {
                 VkImageLayout old_layout = transition->old_layout;
                 VkImageLayout new_layout = transition->new_layout;
@@ -1152,7 +1146,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
                 transition_count++;
 
-                VkImageMemoryBarrier *barrier = ARENA_ALLOC(&w.frame_arena, *barrier);
+                VkImageMemoryBarrier *barrier = ARENA_ALLOC(&w->frame_arena, *barrier);
                 *barrier = (VkImageMemoryBarrier) {
                     .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
                     .oldLayout = transition->old_layout,
@@ -1176,7 +1170,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
             if (transition_count) {
                 vkCmdPipelineBarrier(
-                    w.cmd_buffer,
+                    w->cmd_buffer,
                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,    // srcStageMask
                     VK_PIPELINE_STAGE_TRANSFER_BIT,       // dstStageMask
                     0,                                    // dependencyFlags
@@ -1191,28 +1185,28 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
             U64 copy_count = 0;
 
-            StagingCopyBufferList *copy_b = w.staging_buffer.staging_copies_buffer;
+            StagingCopyBufferList *copy_b = w->staging_buffer.staging_copies_buffer;
             for (; copy_b != NULL; copy_b = copy_b->next) {
                 if (copy_b->copy_count == 0) continue;
                 copy_count += copy_b->copy_count;
 
                 vkCmdCopyBuffer(
-                    w.cmd_buffer,
-                    w.staging_buffer.buffer,
+                    w->cmd_buffer,
+                    w->staging_buffer.buffer,
                     copy_b->target_buffer,
                     copy_b->copy_count,
                     copy_b->buffer_copies
                 );
             }
 
-            StagingCopyImageList *copy_i = w.staging_buffer.staging_copies_image;
+            StagingCopyImageList *copy_i = w->staging_buffer.staging_copies_image;
             for (; copy_i != NULL; copy_i = copy_i->next) {
                 if (copy_i->copy_count == 0) continue;
                 copy_count += copy_i->copy_count;
 
                 vkCmdCopyBufferToImage(
-                    w.cmd_buffer,
-                    w.staging_buffer.buffer,
+                    w->cmd_buffer,
+                    w->staging_buffer.buffer,
                     copy_i->target_image,
                     VK_IMAGE_LAYOUT_GENERAL,
                     copy_i->copy_count,
@@ -1226,9 +1220,9 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
                 //VkMappedMemoryRange staging_range = {
                 //    .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-                //    .memory = w.staging_buffer.buffer_memory,
+                //    .memory = w->staging_buffer.buffer_memory,
                 //    .offset = 0,
-                //    .size = ALIGN_UP_OFFSET(w.staging_buffer.staging_head, w.phy_mem_props.nonCoherentAtomSize),
+                //    .size = ALIGN_UP_OFFSET(w->staging_buffer.staging_head, w->phy_mem_props.nonCoherentAtomSize),
                 //};
                 //vkFlushMappedMemoryRanges(device, 1, &staging_range);
 
@@ -1239,7 +1233,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 };
                   
                 vkCmdPipelineBarrier(
-                    w.cmd_buffer,
+                    w->cmd_buffer,
                     VK_PIPELINE_STAGE_TRANSFER_BIT ,      // srcStageMask
                     VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,   // dstStageMask
                     0,                                    // dependencyFlags
@@ -1265,8 +1259,8 @@ int main(int argc, char *argv[]) { INIT_TRACE
             }}};
             VkRenderPassBeginInfo pass_info = {
                 .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-                .renderPass = w.pass,
-                .framebuffer = w.sc->framebuffers[sc_image_idx],
+                .renderPass = w->pass,
+                .framebuffer = w->sc->framebuffers[sc_image_idx],
                 .renderArea = {
                     .offset = {0, 0},
                     .extent = { width_i, height_i },
@@ -1274,7 +1268,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 .clearValueCount = 1,
                 .pClearValues = &clear_colour,
             };
-            vkCmdBeginRenderPass(w.cmd_buffer, &pass_info, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBeginRenderPass(w->cmd_buffer, &pass_info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
         SCOPE_TRACE {
@@ -1287,14 +1281,14 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 .maxDepth = 1.f,
             };
             VkRect2D s = { { 0, 0 }, { width_i, height_i } };
-            vkCmdBindPipeline(w.cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, w.pl);
-            vkCmdSetViewport(w.cmd_buffer, 0, 1, &v);
-            vkCmdSetScissor(w.cmd_buffer, 0, 1, &s);
+            vkCmdBindPipeline(w->cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, w->pl);
+            vkCmdSetViewport(w->cmd_buffer, 0, 1, &v);
+            vkCmdSetScissor(w->cmd_buffer, 0, 1, &s);
 
             vkCmdBindDescriptorSets(
-                w.cmd_buffer,
+                w->cmd_buffer,
                 VK_PIPELINE_BIND_POINT_GRAPHICS,
-                w.pl_layout,
+                w->pl_layout,
                 0,
                 1,
                 &descriptor_set_glyphs,
@@ -1304,13 +1298,13 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
             if (glyphs_size) {
                 expect(ui->glyph_count < MAX_GLYPHS);
-                vkCmdDraw(w.cmd_buffer, 4, (U32)ui->glyph_count, 0, 0);
+                vkCmdDraw(w->cmd_buffer, 4, (U32)ui->glyph_count, 0, 0);
             }
         }
 
         SCOPE_TRACE {
-            vkCmdEndRenderPass(w.cmd_buffer);
-            VK_ASSERT(vkEndCommandBuffer(w.cmd_buffer));
+            vkCmdEndRenderPass(w->cmd_buffer);
+            VK_ASSERT(vkEndCommandBuffer(w->cmd_buffer));
         }
 
         SCOPE_TRACE {
@@ -1318,14 +1312,14 @@ int main(int argc, char *argv[]) { INIT_TRACE
             VkSubmitInfo submit_info = {
                 .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                 .waitSemaphoreCount = 1,
-                .pWaitSemaphores = &w.image_available,
+                .pWaitSemaphores = &w->image_available,
                 .pWaitDstStageMask = &dst_stage_mask,
                 .commandBufferCount = 1,
-                .pCommandBuffers = &w.cmd_buffer,
+                .pCommandBuffers = &w->cmd_buffer,
                 .signalSemaphoreCount = 1,
-                .pSignalSemaphores = &w.render_finished,
+                .pSignalSemaphores = &w->render_finished,
             };
-            VK_ASSERT(vkQueueSubmit(w.queue, 1, &submit_info, w.in_flight));
+            VK_ASSERT(vkQueueSubmit(w->queue, 1, &submit_info, w->in_flight));
         }
 
         SCOPE_TRACE {
@@ -1336,43 +1330,43 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 //    .scalingBehavior = VK_PRESENT_SCALING_STRETCH_BIT_EXT,
                 //},
                 .waitSemaphoreCount = 1,
-                .pWaitSemaphores = &w.render_finished,
+                .pWaitSemaphores = &w->render_finished,
                 .swapchainCount = 1,
-                .pSwapchains = &w.sc->sc,
+                .pSwapchains = &w->sc->sc,
                 .pImageIndices = &sc_image_idx,
             };
-            VkResult res = vkQueuePresentKHR(w.queue, &present_info);
+            VkResult res = vkQueuePresentKHR(w->queue, &present_info);
             expect(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
         }
 
         // RESET STATE -----------------------------------------------------------
 
-        arena_clear(&w.frame_arena);
-        staging_buffer_reset(&w.staging_buffer);
+        arena_clear(&w->frame_arena);
+        staging_buffer_reset(&w->staging_buffer);
         frame += 1.0f;
     }
 
     ui_destroy(ui);
 
-    VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
-    vkDeviceWaitIdle(w.device);
+    VK_ASSERT(vkWaitForFences(w->device, 1, &w->in_flight, VK_TRUE, UINT64_MAX));
+    vkDeviceWaitIdle(w->device);
 
-    gpu_free(&w, w.static_data_uniform_buffer_memory);
-    vkDestroyBuffer(w.device, w.static_data_uniform_buffer, NULL);
-    gpu_free(&w, glyph_draw_buffer_memory);
-    vkDestroyBuffer(w.device, glyph_draw_buffer, NULL);
+    gpu_free(w->static_data_uniform_buffer_memory);
+    vkDestroyBuffer(w->device, w->static_data_uniform_buffer, NULL);
+    gpu_free(glyph_draw_buffer_memory);
+    vkDestroyBuffer(w->device, glyph_draw_buffer, NULL);
 
-    descriptor_set_destroy(&w, descriptor_set_glyphs);
-    font_atlas_destroy(&w, font_atlas);
-    VK_ASSERT(vkWaitForFences(w.device, 1, &w.in_flight, VK_TRUE, UINT64_MAX));
-    window_destroy(&w);
+    descriptor_set_destroy(descriptor_set_glyphs);
+    font_atlas_destroy(font_atlas);
+    VK_ASSERT(vkWaitForFences(w->device, 1, &w->in_flight, VK_TRUE, UINT64_MAX));
+    window_destroy();
 
     arena_destroy(&static_arena);
     return 0;
 }
 
 void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mods) { TRACE
-    W *w = glfwGetWindowUserPointer(window);
+    (void)window;
     if (w->inputs.key_event_count == EVENTS_MAX) return;
 
     U64 kmask = key_mask(key);
@@ -1395,20 +1389,20 @@ void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mo
 }
 
 void glfw_callback_char(GLFWwindow *window, unsigned int codepoint) { TRACE
-    W *w = glfwGetWindowUserPointer(window);
+    (void)window;
     if (w->inputs.char_event_count == EVENTS_MAX) return;
     w->inputs.char_events[w->inputs.char_event_count++] = (CharEvent) { codepoint };
 }
 
 void glfw_callback_mouse_pos(GLFWwindow *window, double x, double y) { TRACE
-    W *w = glfwGetWindowUserPointer(window);
+    (void)window;
     w->inputs.mouse_x = (F32)x;
     w->inputs.mouse_y = (F32)y;
 }
 
 void glfw_callback_mouse_button(GLFWwindow *window, int button, int action, int mods) { TRACE
     (void)mods;
-    W *w = glfwGetWindowUserPointer(window);
+    (void)window;
     if (action == GLFW_PRESS) {
         w->inputs.mouse_held |= (1u << button);
     } else if (action == GLFW_RELEASE) {
@@ -1418,7 +1412,7 @@ void glfw_callback_mouse_button(GLFWwindow *window, int button, int action, int 
 
 void glfw_callback_scroll(GLFWwindow *window, double x, double y) { TRACE
     (void)x;
-    W *w = glfwGetWindowUserPointer(window);
+    (void)window;
     w->inputs.scroll = (F32)y;
 }
 
@@ -1550,7 +1544,7 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len) {
 }
 
 GLFWmonitor* glfw_get_current_monitor(GLFWwindow *window) { TRACE
-    // adapted from https://stackoverflow.com/a/31526753
+    // adapted from https://stackoverflow->com/a/31526753
     int wx, wy, ww, wh;
     glfwGetWindowPos(window, &wx, &wy);
     glfwGetWindowSize(window, &ww, &wh);

@@ -85,7 +85,7 @@ Panel *filetree_create(Panel *ed_panel, const U8 *working_dir) { TRACE
     panel->update_fn = filetree_update;
     panel->name = "filetree";
 
-    Arena *frame_arena = &panel->ui->w->frame_arena;
+    Arena *frame_arena = &w->frame_arena;
     if (working_dir == NULL) {
         char buf[512];
         filetree_set_directory(ft, frame_arena, (U8*)getcwd(buf, sizeof(buf)));
@@ -193,7 +193,6 @@ void filetree_update(Panel *panel) { TRACE
     FileTree *ft = panel->data;
     UI *ui = panel->ui;
     FontAtlas *font_atlas = ui->atlas;
-    W *w = ui->w;
 
     // UPDATE ----------------------------------------------------
 

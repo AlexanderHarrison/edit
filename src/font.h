@@ -52,9 +52,9 @@ glyph_lookup_idx(FontSize font_size, U8 ch) {
 }
 
 FontAtlas *
-font_atlas_create(W *w, Arena *arena, const char *ttf);
+font_atlas_create(Arena *arena, const char *ttf);
 
 void
-font_atlas_destroy(W *w, FontAtlas *atlas);
+font_atlas_destroy(FontAtlas *atlas);
 
 #endif
