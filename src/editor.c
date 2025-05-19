@@ -1515,11 +1515,8 @@ void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
 }
 
 void editor_remake_caches(Editor *ed) {
-    Timer t = timer_start();
     editor_remake_line_lookup(ed);
-    printf("%f ms line\n", timer_lap_ms(&t));
     editor_remake_syntax_lookup(ed);
-    printf("%f ms syntax\n", timer_lap_ms(&t));
 }
 
 void editor_remake_syntax_lookup(Editor *ed) {
