@@ -68,6 +68,13 @@ static SyntaxGroup syntax_rs[] = {
     SYNTAX_STRING_DOUBLE_QUOTES,
 };
 
+static SyntaxGroup syntax_odin[] = {
+    SYNTAX_COMMENT_SLASHES,
+    SYNTAX_COMMENT_SLASH_STAR,
+    SYNTAX_STRING_DOUBLE_QUOTES,
+    SYNTAX_STRING_SINGLE_QUOTES,
+};
+
 static SyntaxGroup syntax_sh[] = {
     SYNTAX_COMMENT_HASHTAG,
     SYNTAX_STRING_DOUBLE_QUOTES,
@@ -97,6 +104,7 @@ static SyntaxLookup syntax_lookup[] = {
     {"cpp", {countof(syntax_c), syntax_c}},
     {"hpp", {countof(syntax_c), syntax_c}},
     {"rs",  {countof(syntax_rs), syntax_rs}},
+    {"odin",{countof(syntax_odin), syntax_odin}},
     {"sh",  {countof(syntax_sh), syntax_sh}},
     {"py",  {countof(syntax_py), syntax_py}},
     {"glsl",{countof(syntax_c), syntax_c}},
