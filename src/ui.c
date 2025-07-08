@@ -109,7 +109,21 @@ void ui_update(UI *ui, Rect *viewport) { TRACE
 
         panel_focus_queued(new_editor);
     }
+    
+    if (ctrl && is(pressed, key_mask(GLFW_KEY_M))) {
+        Panel *target = ui->focused ? ui->focused : ui->root;
+        Panel *mass = mass_create(ui, NULL);
 
+        if ((target->flags & PanelMode_VSplit) || (target->flags & PanelMode_HSplit)) {
+            // is layout panel
+            panel_add_child(target, mass);
+        } else {
+            // is data panel
+            panel_insert_after(target, mass);
+        }
+
+        panel_focus_queued(mass);
+    }
 
     if (ui->root) {
         panel_set_viewport(ui->root, viewport);

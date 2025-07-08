@@ -37,6 +37,10 @@ static inline U32 my_strlen(const U8 *str) {
 U8 *copy_cstr(Arena *arena, const U8 *str);
 U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 
+U8 *path_join(Arena *arena, const U8 *a, const U8 *b);
+
+bool write_inputs(U8 *text, U32 *text_len, U32 *cursor);
+
 // Config -----------------------------
 
 #define CODE_FONT_SIZE FontSize_13
@@ -103,12 +107,16 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len);
 #define JUMPLIST_MAX_POINT_SIZE (64ul*MB)
 #define JUMPLIST_MAX_POINT_COUNT (JUMPLIST_MAX_POINT_SIZE / sizeof(JumpPoint))
 
+#define MASS_MAX_FILES_SIZE (64ul*MB)
+#define MASS_MAX_MATCHES_SIZE (64ul*MB)
+#define MASS_TEXT_SIZE (64ul*MB)
+
 #define UI_MAX_PANEL_SIZE (64ul*MB)
 #define UI_MAX_PANEL_COUNT (UI_MAX_PANEL_SIZE / sizeof(Panel))
 #define UI_MAX_OP_QUEUE_SIZE (64ul*MB)
 #define UI_MAX_OP_QUEUE_COUNT (UI_MAX_OP_QUEUE_SIZE / sizeof(UIOp))
 
-#define MAX_GLYPHS 8192
+#define MAX_GLYPHS (1ul << 16)
 #define MAX_GLYPHS_SIZE (MAX_GLYPHS*sizeof(Glyph))
 
 #define GLFW_INCLUDE_VULKAN

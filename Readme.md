@@ -3,7 +3,7 @@ A modal text editor!
 
 [![no effort edit demo](https://img.youtube.com/vi/4qpOUSXvTjM/0.jpg)](https://www.youtube.com/watch?v=4qpOUSXvTjM)
 
-Unix only for now - edit depends on freetype.
+Unix only for now.
 
 ## Keybinds
 Keybinds can only be changed by editing the source.
@@ -13,7 +13,8 @@ UI STUFF ############################################################
 C-w - focus next panel
 C-W - focus previous panel
 C-q - exit editor. discards all unsaved changes!
-C-p - create new editor vsplit after focus
+C-p - create new editor vsplit
+C-m - create new mass search/replace vsplit
 
 EDITOR ##############################################################
 
@@ -99,4 +100,6 @@ Esc - exit filetree
 
     Using the '*' character will enable fuzzy search. 
     You can add it multiple times for fuzzier and fuzzier searching.  
+
+MASS SEARCH / REPLACE ###############################################
 ```

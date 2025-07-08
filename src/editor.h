@@ -114,7 +114,6 @@ typedef struct Editor {
     F32 scroll_y_visual;
 } Editor;
 
-// if working_dir is NULL, then will get it from getcwd
 Panel *
 editor_create(UI *ui, const U8 *filepath);
 

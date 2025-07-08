@@ -6,11 +6,13 @@
 #include "filetree.h"
 #include "editor.h"
 #include "jumplist.h"
+#include "mass.h"
 
 #include "ui.c"
 #include "filetree.c"
 #include "editor.c"
 #include "jumplist.c"
+#include "mass.c"
 
 #include "../build/main_vert.h"
 #include "../build/main_frag.h"
@@ -1541,6 +1543,70 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len) {
     U8 *new_str = arena_alloc(arena, str_len, 1);
     memcpy(new_str, str, str_len);
     return new_str;
+}
+
+U8 *path_join(Arena *arena, const U8 *a, const U8 *b) {
+    size_t len_a = strlen(a);
+    size_t len_b = strlen(b);
+    bool add_separator = len_a != 0 && a[len_a-1] != '/';
+    
+    U8 *path = arena_alloc(arena, len_a + len_b + 1 + (size_t)add_separator, 1);
+    
+    U8 *cur = path;
+    
+    memcpy(cur, a, len_a);
+    cur += len_a;
+    
+    if (add_separator) {
+        *cur = '/';
+        cur += 1;
+    }
+    
+    memcpy(cur, b, len_b);
+    cur += len_b;
+    
+    *cur = 0;
+    
+    return path;
+}
+
+// returns true if the text buffer was changed
+bool write_inputs(U8 *text, U32 *text_len, U32 *cursor) {
+    bool ret = false;
+
+    if (*cursor > *text_len)
+        *cursor = *text_len;
+    
+    for (I64 i = 0; i < w->inputs.char_event_count; ++i) {
+        U32 codepoint = w->inputs.char_events[i].codepoint;
+        // enforce ascii for now
+        expect(codepoint < 128);
+
+        U8 codepoint_as_char = (U8)codepoint;
+        
+        memmove(text + *cursor + 1, *text + cursor, *text_len - *cursor);
+        text[*cursor] = codepoint_as_char;
+        *text_len += 1;
+        *cursor += 1;
+        
+        ret = true;
+    }
+    
+    U64 special_pressed = w->inputs.key_special_pressed;
+    U64 special_repeating = w->inputs.key_special_repeating;
+    bool backspace = is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE));  
+    if (*cursor > 0 && backspace) {
+        memmove(text + *cursor - 1, *text + cursor, *text_len - *cursor);
+        *text_len -= 1;
+        *cursor -= 1;
+        
+        ret = true;
+    }
+    
+    // ensure null terminated
+    text[*text_len] = 0;
+    
+    return ret;
 }
 
 GLFWmonitor* glfw_get_current_monitor(GLFWwindow *window) { TRACE

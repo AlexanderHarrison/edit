@@ -440,10 +440,10 @@ void filetree_clear(FileTree *ft) { TRACE
     ft->row_count = 0;
 }
 
-static int filter_dir(const struct dirent *entry) {
+static int filetree_filter_dir(const struct dirent *entry) {
     return entry->d_type == DT_DIR && entry->d_name[0] != '.';
 }
-static int filter_file(const struct dirent *entry) {
+static int filetree_filter_file(const struct dirent *entry) {
     return entry->d_type == DT_REG && entry->d_name[0] != '.';
 }
 
@@ -453,7 +453,7 @@ static void filetree_load_dir(FileTree *ft, Arena *scratch, Dir *dir_entry) { TR
     struct dirent **sorted_entries;
 
     {// iter child directories
-        int dirnum = scandir((char*)dirpath, &sorted_entries, filter_dir, alphasort);
+        int dirnum = scandir((char*)dirpath, &sorted_entries, filetree_filter_dir, alphasort);
         expect(dirnum >= 0);
         U16 child_index = (U16)ft->dir_count;
 
@@ -473,7 +473,7 @@ static void filetree_load_dir(FileTree *ft, Arena *scratch, Dir *dir_entry) { TR
     }
 
     {// iter child files
-        int filenum = scandir((char*)dirpath, &sorted_entries, filter_file, alphasort);
+        int filenum = scandir((char*)dirpath, &sorted_entries, filetree_filter_file, alphasort);
         expect(filenum >= 0);
         dir_entry->file_names_offset = ft->text_buffer_head;
 

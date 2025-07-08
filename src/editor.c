@@ -302,7 +302,7 @@ void editor_update(Panel *panel) { TRACE
                 ed->insert_cursor = ed->selection_b;
             }
 
-            if (is(pressed, key_mask(GLFW_KEY_M))) {
+            if (!ctrl && is(pressed, key_mask(GLFW_KEY_M))) {
                 editor_selection_trim(ed);
             }
 
