@@ -83,7 +83,7 @@ typedef struct Editor {
     U8 *filepath;
     U32 filepath_length;
     SyntaxHighlighting syntax;
-    F32 scroll_y;
+    F64 scroll_y;
     U32 flags;
 
     U8 *text;
@@ -112,7 +112,7 @@ typedef struct Editor {
     I64 search_cursor;
 
     // animation values - do not set these directly
-    F32 scroll_y_visual;
+    F64 scroll_y_visual;
 } Editor;
 
 Panel *

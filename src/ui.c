@@ -173,7 +173,7 @@ Glyph *ui_push_glyph(UI *ui) {
 
 Arena *panel_arena(Panel *panel) {
     if (panel->arena == NULL) {
-        Arena arena = arena_create_sized(1ull * GB);
+        Arena arena = arena_create_sized(16ull * GB);
         Arena *arena_ptr = arena_alloc(&arena, sizeof(Arena), alignof(Arena));
         *arena_ptr = arena;
         panel->arena = arena_ptr;

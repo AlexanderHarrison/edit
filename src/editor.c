@@ -224,8 +224,6 @@ void editor_update(Panel *panel) { TRACE
     UI *ui = panel->ui;
     FontAtlas *font_atlas = ui->atlas;
     
-    Timer t = timer_start();
-    
     // UPDATE ---------------------------------------------------------------
     
     // state switch
@@ -699,9 +697,9 @@ void editor_update(Panel *panel) { TRACE
             float speed = shift ? CODE_SCROLL_SPEED_SLOW : CODE_SCROLL_SPEED_FAST;
             
             if (ctrl && is(held, key_mask(GLFW_KEY_J)))
-                ed->scroll_y += speed / (F32)w->refresh_rate;
+                ed->scroll_y += speed / (F64)w->refresh_rate;
             if (ctrl && is(held, key_mask(GLFW_KEY_K)))
-                ed->scroll_y -= speed / (F32)w->refresh_rate;
+                ed->scroll_y -= speed / (F64)w->refresh_rate;
                  
             bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
             bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
@@ -710,7 +708,7 @@ void editor_update(Panel *panel) { TRACE
             }
             
             if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) {
-                I64 line = (I64)roundf(ed->scroll_y);
+                I64 line = (I64)round(ed->scroll_y);
                 I64 byte = editor_byte_index(ed, line);
                 Range range = editor_group(ed, Group_Line, byte);
                 ed->selection_a = range.start;
@@ -739,7 +737,7 @@ void editor_update(Panel *panel) { TRACE
                 I64 shown_match = ed->search_matches[ed->search_cursor];
                 I64 line_a = editor_line_index(ed, shown_match);
                 I64 line_b = editor_line_index(ed, shown_match + ed->mode_text_length);
-                ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
+                ed->scroll_y = ((F64)line_a + (F64)line_b) / 2.f;
             }
         } else if (ed->mode == Mode_QuickMove) {
             // do nothing, scroll y preserved across update
@@ -747,7 +745,7 @@ void editor_update(Panel *panel) { TRACE
             I64 line_a = editor_line_index(ed, ed->selection_a);
             I64 line_b = editor_line_index(ed, ed->selection_b);
             
-            ed->scroll_y = ((F32)line_a + (F32)line_b) / 2.f;
+            ed->scroll_y = ((F64)line_a + (F64)line_b) / 2.f;
         }
     }
     
@@ -756,7 +754,7 @@ void editor_update(Panel *panel) { TRACE
     { 
         // animate scrolling
         if (ed->mode != Mode_QuickMove) {
-            F32 diff = ed->scroll_y - ed->scroll_y_visual;
+            F64 diff = ed->scroll_y - ed->scroll_y_visual;
             if (fabs(diff) < 0.01f) { 
                 ed->scroll_y_visual = ed->scroll_y;
             } else {
@@ -793,13 +791,13 @@ void editor_update(Panel *panel) { TRACE
     I64 byte_visible_start;
     I64 byte_visible_end;
     {
-        F32 line_i = ed->scroll_y_visual;
+        F64 line_i = ed->scroll_y_visual;
         I64 a = editor_byte_index(ed, (I64)line_i);
         byte_visible_start = a;
         byte_visible_end = a;
         
         while (1) {
-            F32 height_up = (ed->scroll_y_visual - line_i) * font_height;
+            F64 height_up = (ed->scroll_y_visual - line_i) * font_height;
             if (height_up + font_height > text_v.h / 2.f) break;
             
             Range line = editor_group(ed, Group_Line, byte_visible_start-1);
@@ -809,7 +807,7 @@ void editor_update(Panel *panel) { TRACE
         
         line_i = ed->scroll_y_visual;
         while (1) {
-            F32 height_down = (line_i - ed->scroll_y_visual) * font_height;
+            F64 height_down = (line_i - ed->scroll_y_visual) * font_height;
             if (height_down > text_v.h / 2.f) break;
 
             Range line = editor_group(ed, Group_Line, byte_visible_end);
@@ -863,10 +861,10 @@ void editor_update(Panel *panel) { TRACE
         I64 b = ed->selection_b;
         if (a < byte_visible_start) a = byte_visible_start;
         if (b > byte_visible_end) b = byte_visible_end;
-        F32 line_i = (F32)editor_line_index(ed, a);
+        F64 line_i = (F64)editor_line_index(ed, a);
         
         while (1) {
-            F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
+            F32 line_offset_from_scroll = (F32)(line_i - ed->scroll_y_visual);
             F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
             if (line_y > text_v.h) break;
 
@@ -921,8 +919,8 @@ void editor_update(Panel *panel) { TRACE
 
     // WRITE TEXT GLYPHS ----------------------------------------------------
     
-    F32 line_start = (F32)editor_line_index(ed, byte_visible_start);
-    F32 line_y = (line_start - ed->scroll_y_visual) * font_height + text_v.h / 2.f;
+    F64 line_start = (F64)editor_line_index(ed, byte_visible_start);
+    F32 line_y = (F32)(line_start - ed->scroll_y_visual) * font_height + text_v.h / 2.f;
     F32 pen_x = 0.f;
     U32 syntax_range_idx = 0;
     
@@ -1079,7 +1077,7 @@ void editor_update(Panel *panel) { TRACE
                 }
             } break;
             case Mode_QuickMove: {
-                line_i = (I64)roundf(ed->scroll_y);
+                line_i = (I64)round(ed->scroll_y);
             } break;
         }
         
@@ -1194,7 +1192,7 @@ Rect editor_line_rect(Editor *ed, FontAtlas *font_atlas, I64 a, I64 b, Rect *tex
     // get y position of selection rect on this line
     F32 y, height;
     {
-        F32 scroll_diff = (F32)line_i - ed->scroll_y_visual;
+        F32 scroll_diff = (F32)((F64)line_i - ed->scroll_y_visual);
         F32 font_height = font_height_px[CODE_FONT_SIZE];
         F32 descent = font_atlas->descent[CODE_FONT_SIZE];
         y = text_v->y + scroll_diff * font_height + text_v->h / 2.f - descent - 1;

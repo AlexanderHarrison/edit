@@ -86,10 +86,10 @@ bool write_inputs(U8 *text, U32 *text_len, U32 *cursor);
 
 #define MODE_INPUT_TEXT_MAX 512
 #define MODE_TEXT_MAX_LENGTH 8096
-#define TEXT_MAX_LENGTH (1ull << 28)
-#define SEARCH_MAX_LENGTH (64ul*MB)
-#define MAX_LINE_LOOKUP_SIZE (64ul*MB)
-#define MAX_SYNTAX_LOOKUP_SIZE (64ul*MB)
+#define TEXT_MAX_LENGTH (1ull << 32)
+#define SEARCH_MAX_LENGTH (256ull*MB)
+#define MAX_LINE_LOOKUP_SIZE (256ull*MB)
+#define MAX_SYNTAX_LOOKUP_SIZE (256ull*MB)
 
 #define UNDO_STACK_SIZE (64ul*MB)
 #define UNDO_TEXT_SIZE (64ul*MB)
