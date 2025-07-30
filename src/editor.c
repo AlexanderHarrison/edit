@@ -42,8 +42,6 @@ void        editor_text_remove_raw(Editor *ed, I64 start, I64 end);
 void        editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length);
 
 void        editor_remake_caches(Editor *ed);
-void        editor_remake_line_lookup(Editor *ed);
-void        editor_remake_syntax_lookup(Editor *ed);
 
 static U64 int_to_string(Arena *arena, I64 n);
 
@@ -225,6 +223,8 @@ void editor_update(Panel *panel) { TRACE
     Rect *viewport = &panel->viewport;
     UI *ui = panel->ui;
     FontAtlas *font_atlas = ui->atlas;
+    
+    Timer t = timer_start();
     
     // UPDATE ---------------------------------------------------------------
     
@@ -729,7 +729,7 @@ void editor_update(Panel *panel) { TRACE
         ed->selection_a = ed->selection_b;
         ed->selection_b = temp;
     }
-
+    
     // UPDATE ANIMATIONS ----------------------------------------------------
 
     // find new scroll y
@@ -793,35 +793,34 @@ void editor_update(Panel *panel) { TRACE
     I64 byte_visible_start;
     I64 byte_visible_end;
     {
-        F32 line_i = 0.f;
-        I64 a = 0;
-        while (1) {
-            F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
-            F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
-            if (line_y + font_height > 0.f) break;
-
-            Range line = editor_group(ed, Group_Line, a);
-            if (line.end >= ed->text_length)
-                break;
-            else
-                a = line.end;
-            line_i += 1.f;
-        }
+        F32 line_i = ed->scroll_y_visual;
+        I64 a = editor_byte_index(ed, (I64)line_i);
         byte_visible_start = a;
-
+        byte_visible_end = a;
+        
         while (1) {
-            F32 line_offset_from_scroll = line_i - ed->scroll_y_visual;
-            F32 line_y = line_offset_from_scroll * font_height + text_v.h / 2.f;
+            F32 height_up = (ed->scroll_y_visual - line_i) * font_height;
+            if (height_up + font_height > text_v.h / 2.f) break;
+            
+            Range line = editor_group(ed, Group_Line, byte_visible_start-1);
+            byte_visible_start = line.start;
+            line_i -= 1.f;
+        }
+        
+        line_i = ed->scroll_y_visual;
+        while (1) {
+            F32 height_down = (line_i - ed->scroll_y_visual) * font_height;
+            if (height_down > text_v.h / 2.f) break;
 
-            if (line_y > text_v.h) break;
-
-            Range line = editor_group(ed, Group_Line, a);
-            a = line.end;
-            if (line.end >= ed->text_length)
-                break;
+            Range line = editor_group(ed, Group_Line, byte_visible_end);
+            byte_visible_end = line.end;
             line_i += 1.f;
         }
-        byte_visible_end = a;
+        
+        if (byte_visible_start < 0)
+            byte_visible_start = 0;
+        if (byte_visible_end > ed->text_length)
+            byte_visible_end = ed->text_length;
     }
 
     // mode/selection group colour bar
@@ -1464,14 +1463,11 @@ I64 editor_line_index(Editor *ed, I64 byte) { TRACE
 }
 
 I64 editor_byte_index(Editor *ed, I64 line) { TRACE
-    if (line < 0) return line;
-    I64 byte = 0;
-    while (line != 0) {
-        if (editor_text(ed, byte) == '\n')
-            line--;
-        byte++;
-    }
-    return byte;
+    if (line < 0)
+        return line;
+    if (line > ed->line_count)
+        return ed->line_lookup[ed->line_count] + line - ed->line_count;
+    return ed->line_lookup[line];
 }
 
 void editor_text_remove(Editor *ed, I64 start, I64 end) { TRACE
@@ -1564,18 +1560,6 @@ void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
 }
 
 void editor_remake_caches(Editor *ed) {
-    Timer t = timer_start();
-    editor_remake_line_lookup(ed);
-    double elapsed = timer_lap_us(&t);
-    printf("line lookup: %f\n", elapsed);
-    
-    t = timer_start();
-    editor_remake_syntax_lookup(ed);
-    elapsed = timer_lap_us(&t);
-    printf("syntax lookup: %f\n", elapsed);
-}
-
-void editor_remake_syntax_lookup(Editor *ed) {
     U32 syntax_range = 0;
     U32 text_length = (U32)ed->text_length;
 
@@ -1585,8 +1569,14 @@ void editor_remake_syntax_lookup(Editor *ed) {
     U64 char_is_syntax_start[4];
     memcpy(char_is_syntax_start, ed->syntax.char_is_syntax_start, sizeof(char_is_syntax_start));
     
+    U32 line_count = 0;
+    ed->line_lookup[line_count++] = 0;
+    
     for (U32 i = 0; i < text_length; ++i) {
         U8 ch = ed->text[i];
+        
+        if (ch == '\n')
+            ed->line_lookup[line_count++] = i+1;
         
         if (current_syntax_group == NULL) {
             U64 bit = 1ull << ((U64)ch & 63ull);
@@ -1644,24 +1634,8 @@ void editor_remake_syntax_lookup(Editor *ed) {
         }
     }
     
-    ed->syntax_range_count = syntax_range;
-}
-
-void editor_remake_line_lookup(Editor *ed) {
-    ed->line_lookup[0] = 0;
-    if (ed->text_length <= 0) {
-        ed->line_count = 1;
-        ed->line_lookup[1] = 0;
-        return;
-    }
-
-    I64 text_length = ed->text_length - 1;
-    U32 line_count = 1;
-    for (U32 i = 0; i < text_length; ++i) {
-        if (ed->text[i] == '\n')
-            ed->line_lookup[line_count++] = i+1;
-    }
     ed->line_lookup[line_count] = (U32)ed->text_length;
+    ed->syntax_range_count = syntax_range;
     ed->line_count = line_count;
 }
 
