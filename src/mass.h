@@ -33,5 +33,9 @@ typedef struct Mass {
 
 Panel *mass_create(UI *ui, const U8 *dirpath);
 void mass_update(Panel *panel);
+void mass_clear(Mass *mass);
+void mass_read_files(Mass *mass, const U8 *dirpath);
+void mass_search(Mass *mass);
+void mass_execute(Mass *mass);
 
 #endif

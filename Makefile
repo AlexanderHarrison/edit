@@ -32,7 +32,7 @@ build/main_vert.spv: shaders/main_vert.glsl
 	@xxd -i build/main_vert.spv build/main_vert.h
 
 release: build/main_vert.spv build/main_frag.spv src/*
-	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(OPT_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
+	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(RELEASE_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
 
 build/edit: build/main_vert.spv build/main_frag.spv src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)

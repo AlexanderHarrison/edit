@@ -911,7 +911,37 @@ void descriptor_set_destroy(VkDescriptorSet descriptor_set) { TRACE
 
 // MAIN #####################################################
 
+void bench_main(void) {
+    Arena static_arena = arena_create_sized(1ull*GB);
+    window_create(&static_arena);
+    const char *ttf_path = "/usr/share/fonts/truetype/roboto/mono/RobotoMono-Medium.ttf";
+    FontAtlas *font_atlas = font_atlas_create(&static_arena, ttf_path);
+    UI *ui = ui_create(font_atlas, &static_arena);
+    
+    U64 runs = 128;
+    double ms_total = 0.f;
+    for (U64 i = 0; i < runs; ++i) {
+        Panel *massp = mass_create(ui, NULL);
+        Mass *mass = massp->data;
+        memcpy(mass->search, "test", 1);
+        mass->search_len = 1;
+        
+        Timer t = timer_start();
+        mass_search(mass);
+        ms_total += timer_elapsed_ms(&t);
+        
+        ((unsigned char volatile *)mass->files->path)[0] = mass->files->path[0];
+        panel_destroy(massp);
+    }
+    
+    printf("ave %f ms\n", ms_total / (double)runs);
+    fflush(stdout);
+    exit(0);
+}
+
 int main(int argc, char *argv[]) { INIT_TRACE
+    //bench_main();
+
     Arena static_arena = arena_create_sized(1ull*GB);
 
     // gltf window and vulkan -------------------------------------------
@@ -1546,8 +1576,8 @@ U8 *copy_str(Arena *arena, const U8 *str, U32 str_len) {
 }
 
 U8 *path_join(Arena *arena, const U8 *a, const U8 *b) {
-    size_t len_a = strlen(a);
-    size_t len_b = strlen(b);
+    size_t len_a = my_strlen(a);
+    size_t len_b = my_strlen(b);
     bool add_separator = len_a != 0 && a[len_a-1] != '/';
     
     U8 *path = arena_alloc(arena, len_a + len_b + 1 + (size_t)add_separator, 1);

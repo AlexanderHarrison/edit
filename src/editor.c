@@ -98,19 +98,20 @@ typedef struct SyntaxLookup {
     SyntaxHighlighting syntax;
 } SyntaxLookup;
 
+#define Highlighting(A) { countof(A), A, {0, 0} }
 static SyntaxLookup syntax_lookup[] = {
-    {"c",   {countof(syntax_c), syntax_c}},
-    {"h",   {countof(syntax_c), syntax_c}},
-    {"cpp", {countof(syntax_c), syntax_c}},
-    {"hpp", {countof(syntax_c), syntax_c}},
-    {"rs",  {countof(syntax_rs), syntax_rs}},
-    {"odin",{countof(syntax_odin), syntax_odin}},
-    {"sh",  {countof(syntax_sh), syntax_sh}},
-    {"py",  {countof(syntax_py), syntax_py}},
-    {"glsl",{countof(syntax_c), syntax_c}},
-    {"hlsl",{countof(syntax_c), syntax_c}},
-    {"s",   {countof(syntax_asm), syntax_asm}},
-    {"asm", {countof(syntax_asm), syntax_asm}},
+    {"c",    Highlighting(syntax_c)},
+    {"h",    Highlighting(syntax_c)},
+    {"cpp",  Highlighting(syntax_c)},
+    {"hpp",  Highlighting(syntax_c)},
+    {"rs",   Highlighting(syntax_rs)},
+    {"odin", Highlighting(syntax_odin)},
+    {"sh",   Highlighting(syntax_sh)},
+    {"py",   Highlighting(syntax_py)},
+    {"glsl", Highlighting(syntax_c)},
+    {"hlsl", Highlighting(syntax_c)},
+    {"s",    Highlighting(syntax_asm)},
+    {"asm",  Highlighting(syntax_asm)},
 };
 
 SyntaxHighlighting *syntax_for_path(const U8 *filepath, U32 filepath_len) {
@@ -137,14 +138,28 @@ SyntaxHighlighting *syntax_for_path(const U8 *filepath, U32 filepath_len) {
         for (U32 i = 0; i < ex_len; ++i)
             ex[i] = filepath[ex_i + i + 1];
     }
-
+    
+    SyntaxHighlighting *syn = NULL;
     for (U64 i = 0; i < countof(syntax_lookup); ++i) {
         SyntaxLookup *lookup = &syntax_lookup[i];
-        if (memcmp(ex, lookup->extension, sizeof(ex)) == 0)
-            return &lookup->syntax;
+        if (memcmp(ex, lookup->extension, sizeof(ex)) == 0) {
+            syn = &lookup->syntax;
+            break;
+        }
     }
     
-    return NULL;
+    // fill out `char_is_syntax_start` lookup bitfields
+    if (syn) {
+        for (U64 i = 0; i < syn->group_count; ++i) {
+            U64 c = syn->groups[i].start_chars[0];
+            
+            U64 bit = 1ull << (c & 63);
+            U64 arr = c >> 6ull;
+            syn->char_is_syntax_start[arr] |= bit;
+        }
+    }
+    
+    return syn;
 }
 
 Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
@@ -1047,7 +1062,7 @@ void editor_update(Panel *panel) { TRACE
         F32 status_max_x = status_x + mode_info_v.w;
         
         // find line number
-        I64 line_i;
+        I64 line_i = 0;
         switch (ed->mode) {
             case Mode_Normal: {
                 line_i = editor_line_index(ed, ed->selection_b);
@@ -1539,7 +1554,7 @@ void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
 
     ed->text_length += length;
     memcpy(&ed->text[at], text, (U64)length);
-
+    
     // force newline termination cuz it makes math a lot simpler
     if (ed->text[ed->text_length-1] != '\n') {
         ed->text[ed->text_length++] = '\n';
@@ -1549,8 +1564,15 @@ void editor_text_insert_raw(Editor *ed, I64 at, U8 *text, I64 length) { TRACE
 }
 
 void editor_remake_caches(Editor *ed) {
+    Timer t = timer_start();
     editor_remake_line_lookup(ed);
+    double elapsed = timer_lap_us(&t);
+    printf("line lookup: %f\n", elapsed);
+    
+    t = timer_start();
     editor_remake_syntax_lookup(ed);
+    elapsed = timer_lap_us(&t);
+    printf("syntax lookup: %f\n", elapsed);
 }
 
 void editor_remake_syntax_lookup(Editor *ed) {
@@ -1560,10 +1582,19 @@ void editor_remake_syntax_lookup(Editor *ed) {
     SyntaxGroup *current_syntax_group = NULL;
     SyntaxRange *current_range = NULL;
     
+    U64 char_is_syntax_start[4];
+    memcpy(char_is_syntax_start, ed->syntax.char_is_syntax_start, sizeof(char_is_syntax_start));
+    
     for (U32 i = 0; i < text_length; ++i) {
         U8 ch = ed->text[i];
         
         if (current_syntax_group == NULL) {
+            U64 bit = 1ull << ((U64)ch & 63ull);
+            U64 arr = (U64)ch >> 6ull;
+            U64 start_mask = char_is_syntax_start[arr];
+            if ((start_mask & bit) == 0)
+                continue;
+        
             U8 ch_next = editor_text(ed, i+1);
             U64 group_count = ed->syntax.group_count;
              
@@ -1617,15 +1648,19 @@ void editor_remake_syntax_lookup(Editor *ed) {
 }
 
 void editor_remake_line_lookup(Editor *ed) {
-    U32 line_count = 0;
-    ed->line_lookup[line_count++] = 0;
-    
+    ed->line_lookup[0] = 0;
+    if (ed->text_length <= 0) {
+        ed->line_count = 1;
+        ed->line_lookup[1] = 0;
+        return;
+    }
+
     I64 text_length = ed->text_length - 1;
+    U32 line_count = 1;
     for (U32 i = 0; i < text_length; ++i) {
         if (ed->text[i] == '\n')
             ed->line_lookup[line_count++] = i+1;
     }
-    
     ed->line_lookup[line_count] = (U32)ed->text_length;
     ed->line_count = line_count;
 }

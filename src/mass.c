@@ -1,7 +1,3 @@
-static void mass_read_files(Mass *mass, const U8 *dirpath);
-static void mass_search(Mass *mass);
-static void mass_execute(Mass *mass);
-
 Panel *mass_create(UI *ui, const U8 *dirpath) { TRACE
     Panel *panel = panel_create(ui);
     panel->update_fn = mass_update;
@@ -29,6 +25,15 @@ Panel *mass_create(UI *ui, const U8 *dirpath) { TRACE
     return panel;
 }
 
+void mass_clear(Mass *mass) {
+    arena_clear(mass->arena);
+    mass->search_len = 0;
+    mass->replace_len = 0;
+    mass->file_count = 0;
+    mass->match_count = 0;
+    mass->mode = MassMode_EditSearch;
+}
+
 void mass_update(Panel *panel) { TRACE
     // update -------------------------------------------------
     
@@ -36,14 +41,10 @@ void mass_update(Panel *panel) { TRACE
     
     if (panel->flags & PanelFlag_Focused) {
         U64 special_pressed = w->inputs.key_special_pressed;
-        U64 special_repeating = w->inputs.key_special_repeating;
         U64 pressed = w->inputs.key_pressed;
-        U64 held = w->inputs.key_held;
-        U64 repeating = w->inputs.key_repeating;
         U64 modifiers = w->inputs.modifiers;
 
         bool ctrl = is(modifiers, GLFW_MOD_CONTROL);
-        bool shift = is(modifiers, GLFW_MOD_SHIFT);
         
         switch (mass->mode) {
             case MassMode_EditSearch: {
@@ -228,12 +229,9 @@ void mass_update(Panel *panel) { TRACE
     
 }
 
-static void mass_search(Mass *mass) {
+void mass_search(Mass *mass) {
     mass->match_count = 0;
     if (mass->search_len == 0) return;
-    
-    printf("searching %s\n", mass->search);
-    Timer t = timer_start();
     
     for (U32 file_i = 0; file_i < mass->file_count; ++file_i) {
         File *file = &mass->files[file_i];
@@ -247,9 +245,6 @@ static void mass_search(Mass *mass) {
             }
         }
     }
-    
-    double ms = timer_elapsed_ms(&t);
-    printf("%i in %fms\n", mass->match_count, ms);
 }
 
 static int mass_filter_dir(const struct dirent *entry) {
@@ -265,19 +260,19 @@ static bool all_ascii(U8 *f, U64 length) {
     return true;
 }
 
-static void mass_read_files(Mass *mass, const U8 *dirpath) { TRACE
+void mass_read_files(Mass *mass, const U8 *dirpath) { TRACE
     struct dirent **entries;
 
     {// iter child files
-        int filenum = scandir((char*)dirpath, &entries, mass_filter_file, alphasort);
+        int filenum = scandir((const char*)dirpath, &entries, mass_filter_file, alphasort);
         expect(filenum >= 0);
 
         for (int file = 0; file < filenum; ++file) {
             const char *filename = entries[file]->d_name;
             
             ArenaResetPoint reset = arena_reset_point(mass->arena);
-            U8 *path = path_join(mass->arena, dirpath, filename);
-            Bytes f = read_file_in(path, mass->arena);
+            U8 *path = path_join(mass->arena, dirpath, (const U8*)filename);
+            Bytes f = read_file_in((const char*)path, mass->arena);
             
             if (all_ascii(f.ptr, f.len)) {
                 mass->files[mass->file_count++] = (File) {
@@ -294,7 +289,7 @@ static void mass_read_files(Mass *mass, const U8 *dirpath) { TRACE
     }
     
     {// iter child directories
-        int dirnum = scandir((char*)dirpath, &entries, mass_filter_dir, alphasort);
+        int dirnum = scandir((const char*)dirpath, &entries, mass_filter_dir, alphasort);
         expect(dirnum >= 0);
 
         for (int dir = 0; dir < dirnum; ++dir) {
@@ -307,11 +302,11 @@ static void mass_read_files(Mass *mass, const U8 *dirpath) { TRACE
     }
 }
 
-static void mass_execute(Mass *mass) { TRACE
+void mass_execute(Mass *mass) { TRACE
     U32 match_i = 0;
     for (U32 file_i = 0; file_i < mass->file_count; ++file_i) {
         File *file = &mass->files[file_i];
-        FILE *f = fopen(file->path, "wb");
+        FILE *f = fopen((const char*)file->path, "wb");
         if (f == NULL) continue;
         
         U32 contents_i = 0;

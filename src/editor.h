@@ -69,6 +69,7 @@ typedef struct SyntaxGroup {
 typedef struct SyntaxHighlighting {
     U64 group_count;
     SyntaxGroup *groups;
+    U64 char_is_syntax_start[4];
 } SyntaxHighlighting;
 
 typedef struct SyntaxRange {
