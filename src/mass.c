@@ -8,6 +8,7 @@ Panel *mass_create(UI *ui, const U8 *dirpath) { TRACE
     *mass = (Mass) {
         .arena = arena,
         .files = arena_alloc(arena, MASS_MAX_FILES_SIZE, page_size()),
+        .prefix_matches = arena_alloc(arena, MASS_MAX_MATCHES_SIZE, page_size()),
         .matches = arena_alloc(arena, MASS_MAX_MATCHES_SIZE, page_size()),
         .search = arena_alloc(arena, MASS_TEXT_SIZE, page_size()),
         .replace = arena_alloc(arena, MASS_TEXT_SIZE, page_size()),
@@ -31,6 +32,7 @@ void mass_clear(Mass *mass) {
     mass->replace_len = 0;
     mass->file_count = 0;
     mass->match_count = 0;
+    mass->prefix_match_count = 0;
     mass->mode = MassMode_EditSearch;
 }
 
@@ -51,6 +53,11 @@ void mass_update(Panel *panel) { TRACE
                 U32 cursor = mass->search_len;
                 if (write_inputs(mass->search, &mass->search_len, &cursor))
                     mass_search(mass);
+                    
+                bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
+                bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
+                if (esc || caps)
+                    panel_destroy_queued(panel);
                 
                 if (ctrl && is(pressed, key_mask(GLFW_KEY_R)))
                     mass->mode = MassMode_EditReplace;
@@ -229,9 +236,114 @@ void mass_update(Panel *panel) { TRACE
     
 }
 
+void mass_search_prefix_1(Mass *mass) {
+    U8 c = mass->search[0];
+
+    for (U32 file_i = 0; file_i < mass->file_count; ++file_i) {
+        File *file = &mass->files[file_i];
+        U32 end = file->contents_len;
+
+        for (U32 i = 0; i + 8 < end; ++i) {
+            if (file->contents[i] == c) {
+                mass->prefix_matches[mass->prefix_match_count++] = (Match) {
+                    .file_idx = file_i,
+                    .match_offset = i,
+                };
+            }
+        }
+    }
+}
+
+void mass_search_prefix_2(Mass *mass) {
+    U8 c[2];
+    memcpy(c, mass->search, 2);
+
+    for (U32 file_i = 0; file_i < mass->file_count; ++file_i) {
+        File *file = &mass->files[file_i];
+        U32 end = file->contents_len;
+
+        for (U32 i = 0; i + 2 < end; ++i) {
+            if (memcmp(c, &file->contents[i], 2) == 0) {
+                mass->prefix_matches[mass->prefix_match_count++] = (Match) {
+                    .file_idx = file_i,
+                    .match_offset = i,
+                };
+            }
+        }
+    }
+}
+
+void mass_search_prefix_4(Mass *mass) {
+    U8 c[4];
+    memcpy(c, mass->search, 4);
+
+    for (U32 file_i = 0; file_i < mass->file_count; ++file_i) {
+        File *file = &mass->files[file_i];
+        U32 end = file->contents_len;
+
+        for (U32 i = 0; i + 4 < end; ++i) {
+            if (memcmp(c, &file->contents[i], 4) == 0) {
+                mass->prefix_matches[mass->prefix_match_count++] = (Match) {
+                    .file_idx = file_i,
+                    .match_offset = i,
+                };
+            }
+        }
+    }
+}
+
+void mass_search_prefix_8(Mass *mass) {
+    U8 c[8];
+    memcpy(c, mass->search, 8);
+
+    for (U32 file_i = 0; file_i < mass->file_count; ++file_i) {
+        File *file = &mass->files[file_i];
+        U32 end = file->contents_len;
+
+        for (U32 i = 0; i + 8 < end; ++i) {
+            if (memcmp(c, &file->contents[i], 8) == 0) {
+                mass->prefix_matches[mass->prefix_match_count++] = (Match) {
+                    .file_idx = file_i,
+                    .match_offset = i,
+                };
+            }
+        }
+    }
+}
+
 void mass_search(Mass *mass) {
     mass->match_count = 0;
+    mass->prefix_match_count = 0;
     if (mass->search_len == 0) return;
+    
+    Timer t = timer_start();
+    
+    if (mass->search_len >= 8)
+        mass_search_prefix_8(mass);
+    else if (mass->search_len >= 4)
+        mass_search_prefix_4(mass);
+    else if (mass->search_len >= 2)
+        mass_search_prefix_2(mass);
+    else
+        mass_search_prefix_1(mass);
+        
+    for (U32 prefix_match_i = 0; prefix_match_i < mass->prefix_match_count; ++prefix_match_i) {
+        Match *match = &mass->prefix_matches[prefix_match_i];
+        File *file = &mass->files[match->file_idx];
+        
+        int cmp = memcmp(&file->contents[match->match_offset], mass->search, mass->search_len);
+        if (cmp == 0)
+            mass->matches[mass->match_count++] = *match;
+    }
+    
+    printf("search in %fms\n", timer_elapsed_ms(&t));
+}
+
+/*void mass_search(Mass *mass) {
+    mass->match_count = 0;
+    if (mass->search_len == 0) return;
+    
+    Timer t = timer_start();
     
     for (U32 file_i = 0; file_i < mass->file_count; ++file_i) {
         File *file = &mass->files[file_i];
@@ -245,7 +357,9 @@ void mass_search(Mass *mass) {
             }
         }
     }
-}
+    
+    printf("search in %fms\n", timer_elapsed_ms(&t));
+}*/
 
 static int mass_filter_dir(const struct dirent *entry) {
     return entry->d_type == DT_DIR && entry->d_name[0] != '.';
@@ -254,9 +368,16 @@ static int mass_filter_file(const struct dirent *entry) {
     return entry->d_type == DT_REG && entry->d_name[0] != '.';
 }
 
-static bool all_ascii(U8 *f, U64 length) {
-    for (U64 i = 0; i < length; ++i)
-        if (f[i] > 127) return false;
+static bool probably_utf8(U8 *f, U64 length) {
+    for (U64 i = 0; i < length; ++i) {
+        U8 c = f[i];
+        if (c == 0)
+            return false;
+        if (c >= 0xF5)
+            return false;
+        if (c == 0xC0 || c == 0xC1)
+            return false;
+    }
     return true;
 }
 
@@ -274,13 +395,14 @@ void mass_read_files(Mass *mass, const U8 *dirpath) { TRACE
             U8 *path = path_join(mass->arena, dirpath, (const U8*)filename);
             Bytes f = read_file_in((const char*)path, mass->arena);
             
-            if (all_ascii(f.ptr, f.len)) {
+            if (probably_utf8(f.ptr, f.len)) {
                 mass->files[mass->file_count++] = (File) {
                     .path = path,
                     .contents_len = (U32)f.len,
                     .contents = f.ptr,
                 };
             } else {
+                printf("skipping %s\n", (char *)path);
                 arena_reset(mass->arena, &reset);
             }
         }
@@ -307,7 +429,10 @@ void mass_execute(Mass *mass) { TRACE
     for (U32 file_i = 0; file_i < mass->file_count; ++file_i) {
         File *file = &mass->files[file_i];
         FILE *f = fopen((const char*)file->path, "wb");
-        if (f == NULL) continue;
+        if (f == NULL) {
+            fprintf(stderr, "Could not open %s\n", (const char*)file->path);
+            continue;
+        }
         
         U32 contents_i = 0;
         while (match_i < mass->match_count) {

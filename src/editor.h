@@ -94,9 +94,14 @@ typedef struct Editor {
     U32 line_count;
     U32 syntax_range_count;
 
+    // may be out of order
+    I64 selection_base;
+    I64 selection_head;
+    
     // a <= b always
     I64 selection_a;
     I64 selection_b;
+    
     Group selection_group;
 
     Mode mode;

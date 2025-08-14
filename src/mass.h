@@ -26,8 +26,10 @@ typedef struct Mass {
     U32 replace_len;
     U32 file_count;
     U32 match_count;
+    U32 prefix_match_count;
     File *files;
     Match *matches;
+    Match *prefix_matches;
     MassMode mode;
 } Mass;
 

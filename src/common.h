@@ -107,9 +107,9 @@ bool write_inputs(U8 *text, U32 *text_len, U32 *cursor);
 #define JUMPLIST_MAX_POINT_SIZE (64ul*MB)
 #define JUMPLIST_MAX_POINT_COUNT (JUMPLIST_MAX_POINT_SIZE / sizeof(JumpPoint))
 
-#define MASS_MAX_FILES_SIZE (64ul*MB)
-#define MASS_MAX_MATCHES_SIZE (64ul*MB)
-#define MASS_TEXT_SIZE (64ul*MB)
+#define MASS_MAX_FILES_SIZE (512ul*MB)
+#define MASS_MAX_MATCHES_SIZE (512ul*MB)
+#define MASS_TEXT_SIZE (512ul*MB)
 
 #define UI_MAX_PANEL_SIZE (64ul*MB)
 #define UI_MAX_PANEL_COUNT (UI_MAX_PANEL_SIZE / sizeof(Panel))

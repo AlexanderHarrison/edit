@@ -26,6 +26,7 @@ Range       editor_range_trim(Editor *ed, Range range);
 Indices     editor_find_lines(Editor *ed, Arena *arena, I64 start, I64 end);
 void        editor_comment_lines(Editor *ed, Indices lines);
 void        editor_uncomment_lines(Editor *ed, Indices lines);
+void        editor_set_selection(Editor *ed, I64 base, I64 head);
 
 void        editor_undo(Editor *ed);
 void        editor_redo(Editor *ed);
@@ -266,30 +267,21 @@ void editor_update(Panel *panel) { TRACE
 
             if (is(pressed | repeating, key_mask(GLFW_KEY_J))) {
                 if (!ctrl && !shift) {
-                    Range next_group = editor_group_next(ed, ed->selection_group, ed->selection_b);
-                    ed->selection_a = next_group.start;
-                    ed->selection_b = next_group.end;
+                    Range next_group = editor_group_next(ed, ed->selection_group, ed->selection_head);
+                    editor_set_selection(ed, next_group.start, next_group.end);
                 } else if (!ctrl && shift) {
-                    Range next_group = editor_group_next(ed, ed->selection_group, ed->selection_b);
-                    ed->selection_b = next_group.end;
-                } else if (ctrl && shift) {
-                    Range a_group = editor_group(ed, ed->selection_group, ed->selection_a);
-                    Range next_group = editor_group_next(ed, ed->selection_group, a_group.end);
-                    ed->selection_a = next_group.start;
+                    Range next_group = editor_group_next(ed, ed->selection_group, ed->selection_head);
+                    editor_set_selection(ed, ed->selection_base, next_group.end);
                 }
             }
 
             if (is(pressed | repeating, key_mask(GLFW_KEY_K))) {
                 if (!ctrl && !shift) {
                     Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_a);
-                    ed->selection_a = prev_group.start;
-                    ed->selection_b = prev_group.end;
+                    editor_set_selection(ed, prev_group.start, prev_group.end);
                 } else if (!ctrl && shift) {
-                    Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_a);
-                    ed->selection_a = prev_group.start;
-                } else if (ctrl && shift) {
-                    Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_b);
-                    ed->selection_b = prev_group.start;
+                    Range prev_group = editor_group_prev(ed, ed->selection_group, ed->selection_head);
+                    editor_set_selection(ed, ed->selection_base, prev_group.start);
                 }
             }
 
@@ -326,8 +318,7 @@ void editor_update(Panel *panel) { TRACE
                 else
                     editor_group_contract(ed);
                 Range range = editor_group(ed, ed->selection_group, ed->selection_a);
-                ed->selection_a = range.start;
-                ed->selection_b = range.end;
+                editor_set_selection(ed, range.start, range.end);
             }
 
             if (is(pressed, key_mask(GLFW_KEY_E))) {
@@ -337,15 +328,13 @@ void editor_update(Panel *panel) { TRACE
                 else
                     editor_group_contract(ed);
                 Range range = editor_group(ed, ed->selection_group, ed->selection_b-1);
-                ed->selection_a = range.start;
-                ed->selection_b = range.end;
+                editor_set_selection(ed, range.start, range.end);
             }
 
             if (!ctrl && is(pressed | repeating, key_mask(GLFW_KEY_D))) {
                 editor_text_remove(ed, ed->selection_a, ed->selection_b);
                 Range range = editor_group(ed, ed->selection_group, ed->selection_a);
-                ed->selection_a = range.start;
-                ed->selection_b = range.end;
+                editor_set_selection(ed, range.start, range.end);
             }
 
             if (is(pressed, key_mask(GLFW_KEY_Y))) {
@@ -363,17 +352,16 @@ void editor_update(Panel *panel) { TRACE
 
             if (is(pressed, key_mask(GLFW_KEY_F))) {
                 if (!ctrl)
-                    ed->selection_b = ed->text_length;
+                    editor_set_selection(ed, ed->selection_a, ed->text_length);
                 if (!shift)
-                    ed->selection_a = 0;
+                    editor_set_selection(ed, 0, ed->selection_b);
             }
 
             if (!ctrl && !shift && is(pressed, key_mask(GLFW_KEY_R))) {
                 editor_selection_trim(ed);
                 ed->selection_group = Group_SubWord;
                 Range range = editor_group(ed, ed->selection_group, ed->selection_a);
-                ed->selection_a = range.start;
-                ed->selection_b = range.end;
+                editor_set_selection(ed, range.start, range.end);
             }
 
             if (is(pressed, key_mask(GLFW_KEY_SLASH))) {
@@ -398,8 +386,7 @@ void editor_update(Panel *panel) { TRACE
                     U8 *text_owned = copy_cstr(&w->frame_arena, text);
                     U32 len = my_strlen(text);
                     editor_text_insert(ed, paste_idx, text_owned, len);
-                    ed->selection_a = paste_idx;
-                    ed->selection_b = paste_idx + len;
+                    editor_set_selection(ed, paste_idx, paste_idx + len);
                 }
             }
 
@@ -505,8 +492,7 @@ void editor_update(Panel *panel) { TRACE
                 ed->mode = Mode_Normal;
                 ed->selection_group = Group_Line;
                 Range range = editor_group(ed, ed->selection_group, ed->insert_cursor);
-                ed->selection_a = range.start;
-                ed->selection_b = range.end;
+                editor_set_selection(ed, range.start, range.end);
             }
 
             for (I64 i = 0; i < w->inputs.char_event_count; ++i) {
@@ -646,8 +632,7 @@ void editor_update(Panel *panel) { TRACE
             if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) { 
                 if (ed->search_match_count > 0) {
                     I64 shown_match = ed->search_matches[ed->search_cursor];
-                    ed->selection_a = shown_match;
-                    ed->selection_b = shown_match + ed->mode_text_length;
+                    editor_set_selection(ed, shown_match, shown_match + ed->mode_text_length);
                 }
                 ed->mode = Mode_Normal;
             }
@@ -711,21 +696,14 @@ void editor_update(Panel *panel) { TRACE
                 I64 line = (I64)round(ed->scroll_y);
                 I64 byte = editor_byte_index(ed, line);
                 Range range = editor_group(ed, Group_Line, byte);
-                ed->selection_a = range.start;
-                ed->selection_b = range.end;
+                ed->selection_base = range.start;
+                ed->selection_head = range.end;
                 ed->mode = Mode_Normal;
             }
              
             break;
         }
         }
-    }
-    
-    // Reverse selection
-    if (ed->selection_a > ed->selection_b) {
-        I64 temp = ed->selection_a;
-        ed->selection_a = ed->selection_b;
-        ed->selection_b = temp;
     }
     
     // UPDATE ANIMATIONS ----------------------------------------------------
@@ -742,10 +720,7 @@ void editor_update(Panel *panel) { TRACE
         } else if (ed->mode == Mode_QuickMove) {
             // do nothing, scroll y preserved across update
         } else {
-            I64 line_a = editor_line_index(ed, ed->selection_a);
-            I64 line_b = editor_line_index(ed, ed->selection_b);
-            
-            ed->scroll_y = ((F64)line_a + (F64)line_b) / 2.f;
+            ed->scroll_y = (F64)editor_line_index(ed, ed->selection_head);
         }
     }
     
@@ -1260,8 +1235,7 @@ int editor_load_filepath(Editor *ed, const U8 *filepath, U32 filepath_length) { 
     ed->syntax = syntax ? *syntax : (SyntaxHighlighting){0};
 
     ed->selection_group = Group_Line;
-    ed->selection_a = 0;
-    ed->selection_b = editor_group(ed, Group_Line, 0).end;
+    editor_set_selection(ed, 0, editor_group(ed, Group_Line, 0).end);
     ed->flags &= ~(U32)EditorFlag_Unsaved;
     
     editor_remake_caches(ed);
@@ -1487,15 +1461,15 @@ void editor_text_remove(Editor *ed, I64 start, I64 end) { TRACE
 
 void editor_text_remove_raw(Editor *ed, I64 start, I64 end) { TRACE
     if (start <= ed->selection_a && ed->selection_a < end) {
-        ed->selection_a = start;
+        editor_set_selection(ed, start, ed->selection_b);
     } else if (end <= ed->selection_a) {
-        ed->selection_a -= end - start;
+        editor_set_selection(ed, ed->selection_a - (end - start), ed->selection_b);
     }
 
     if (start <= ed->selection_b && ed->selection_b < end) {
-        ed->selection_b = start;
+        editor_set_selection(ed, ed->selection_a, start);
     } else if (end <= ed->selection_b) {
-        ed->selection_b -= end - start;
+        editor_set_selection(ed, ed->selection_a, ed->selection_b - (end - start));
     }
 
     U64 to_move = (U64)(ed->text_length - end);
@@ -1650,8 +1624,7 @@ Range editor_range_trim(Editor *ed, Range range) {
 void editor_selection_trim(Editor *ed) { TRACE
     Range selection = (Range) { ed->selection_a, ed->selection_b };
     Range new = editor_range_trim(ed, selection);
-    ed->selection_a = new.start;
-    ed->selection_b = new.end;
+    editor_set_selection(ed, new.start, new.end);
 }
 
 // UNDO REDO ####################################################################
@@ -1667,13 +1640,11 @@ void editor_undo(Editor *ed) { TRACE
     switch (elem.op) {
         case UndoOp_Insert:
             editor_text_remove_raw(ed, elem.at, elem.at + (I64)elem.text_length);
-            ed->selection_a = elem.at;
-            ed->selection_b = elem.at;
+            editor_set_selection(ed, elem.at, elem.at);
             break;
         case UndoOp_Remove:
             editor_text_insert_raw(ed, elem.at, text, (I64)elem.text_length);
-            ed->selection_a = elem.at;
-            ed->selection_b = elem.at + elem.text_length;
+            editor_set_selection(ed, elem.at, elem.at + elem.text_length);
             break;
     }
     
@@ -1885,11 +1856,23 @@ void editor_uncomment_lines(Editor *ed, Indices lines) {
     }
 }
 
+void editor_set_selection(Editor *ed, I64 base, I64 head) {
+    ed->selection_base = base;
+    ed->selection_head = head;
+    
+    if (base <= head) {
+        ed->selection_a = base;
+        ed->selection_b = head;
+    } else {
+        ed->selection_a = head;
+        ed->selection_b = base;
+    }
+}
+
 void editor_goto_line(Editor *ed, I64 line_idx) {
     I64 byte = editor_byte_index(ed, line_idx);
     Range line = editor_group(ed, Group_Line, byte);
-    ed->selection_a = line.start;
-    ed->selection_b = line.end;
+    editor_set_selection(ed, line.start, line.end);
     ed->selection_group = Group_Line;
     ed->mode = Mode_Normal;
 }
