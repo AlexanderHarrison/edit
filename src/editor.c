@@ -679,12 +679,12 @@ void editor_update(Panel *panel) { TRACE
         }
 
         case Mode_QuickMove: {
-            float speed = shift ? CODE_SCROLL_SPEED_SLOW : CODE_SCROLL_SPEED_FAST;
+            F32 speed = ctrl ? CODE_SCROLL_SPEED_FAST : CODE_SCROLL_SPEED_SLOW;
             
-            if (ctrl && is(held, key_mask(GLFW_KEY_J)))
-                ed->scroll_y += speed / (F64)w->refresh_rate;
-            if (ctrl && is(held, key_mask(GLFW_KEY_K)))
-                ed->scroll_y -= speed / (F64)w->refresh_rate;
+            if (is(held, key_mask(GLFW_KEY_J)))
+                ed->scroll_y += speed * w->deltatime;
+            if (is(held, key_mask(GLFW_KEY_K)))
+                ed->scroll_y -= speed * w->deltatime;
                  
             bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
             bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
@@ -696,8 +696,7 @@ void editor_update(Panel *panel) { TRACE
                 I64 line = (I64)round(ed->scroll_y);
                 I64 byte = editor_byte_index(ed, line);
                 Range range = editor_group(ed, Group_Line, byte);
-                ed->selection_base = range.start;
-                ed->selection_head = range.end;
+                editor_set_selection(ed, range.start, range.end);
                 ed->mode = Mode_Normal;
             }
              

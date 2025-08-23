@@ -46,8 +46,8 @@ bool write_inputs(U8 *text, U32 *text_len, U32 *cursor);
 #define CODE_FONT_SIZE FontSize_13
 #define CODE_SMALL_FONT_SIZE FontSize_9
 #define MODE_FONT_SIZE FontSize_21
-#define CODE_SCROLL_SPEED_SLOW 6.f
-#define CODE_SCROLL_SPEED_FAST 15.f
+#define CODE_SCROLL_SPEED_SLOW 30.f
+#define CODE_SCROLL_SPEED_FAST 100.f
 
 // Percentage to travel to target per frame, assuming 60hz.
 // Will be translated in w->anim_exp_factor for other refresh rates.
@@ -344,8 +344,12 @@ typedef struct W {
 
     bool should_close;
     bool force_update;
+    bool recheck_refresh_rate;
     F32 refresh_rate;
     F32 exp_factor;
+    
+    Timer deltatimer;
+    F32 deltatime;
 } W;
 
 extern W *w;

@@ -58,6 +58,8 @@ void glfw_callback_char         (GLFWwindow *window, unsigned int codepoint);
 void glfw_callback_mouse_pos    (GLFWwindow *window, double x, double y);
 void glfw_callback_mouse_button (GLFWwindow *window, int button, int action, int mods);
 void glfw_callback_scroll       (GLFWwindow *window, double x, double y);
+void glfw_callback_window_pos   (GLFWwindow *window, int xpos, int ypos);
+void glfw_callback_window_size  (GLFWwindow *window, int width, int height);
 
 GLFWmonitor*
 glfw_get_current_monitor(GLFWwindow *window);
@@ -650,7 +652,9 @@ void window_create(Arena *arena) { TRACE
         static_data_uniform, static_data_uniform_buffer, static_data_uniform_buffer_memory,
 
         inputs, frame_arena, staging, 
-        false, false, 60.f, 0.2f
+        false, false, false, 60.f, 0.2f,
+        
+        timer_start(), 0.f,
     };
 
     // ALLOC GPU BUFFERS ---------------------------------------------------------------------
@@ -952,6 +956,8 @@ int main(int argc, char *argv[]) { INIT_TRACE
     glfwSetCursorPosCallback(w->window, glfw_callback_mouse_pos);
     glfwSetMouseButtonCallback(w->window, glfw_callback_mouse_button);
     glfwSetScrollCallback(w->window, glfw_callback_scroll);
+    glfwSetWindowPosCallback(w->window, glfw_callback_window_pos);
+    glfwSetWindowSizeCallback(w->window, glfw_callback_window_size);
 
     // font atlas -------------------------------------------------------
 
@@ -1017,7 +1023,7 @@ int main(int argc, char *argv[]) { INIT_TRACE
         if (!has_ops && !w->force_update)
             glfwWaitEventsTimeout(0.1);
         else
-            glfwPollEvents();
+            glfwWaitEventsTimeout(0.005);
         w->inputs.mouse_in_window = glfwGetWindowAttrib(w->window, GLFW_HOVERED) != 0;
         w->inputs.mouse_pressed = w->inputs.mouse_held & ~w->inputs.mouse_held_prev;
         w->inputs.mouse_released = w->inputs.mouse_held_prev & ~w->inputs.mouse_held;
@@ -1043,17 +1049,20 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 );
             }
         }
-
-        GLFWmonitor *monitor = glfw_get_current_monitor(w->window);
-        if (monitor) {        
-            const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-            if (mode != NULL) {
-                F32 refresh_rate = (F32)mode->refreshRate;
-                w->refresh_rate = refresh_rate;
-                w->exp_factor = 1.f - (F32)pow(1.f - ANIM_EXP_FACTOR, 60.f/refresh_rate);
+        
+        if (w->recheck_refresh_rate) {
+            w->recheck_refresh_rate = false;
+            GLFWmonitor *monitor = glfw_get_current_monitor(w->window);
+            if (monitor) {        
+                const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+                if (mode != NULL) {
+                    F32 refresh_rate = (F32)mode->refreshRate;
+                    w->refresh_rate = refresh_rate;
+                    w->exp_factor = 1.f - (F32)pow(1.f - ANIM_EXP_FACTOR, 60.f/refresh_rate);
+                }
             }
         }
-
+    
         // STATIC DATA --------------------------------------------------------
 
         F32 width, height;
@@ -1089,6 +1098,8 @@ int main(int argc, char *argv[]) { INIT_TRACE
         }
 
         // UPDATE ----------------------------------------------------------------
+        
+        w->deltatime = (F32)timer_lap_s(&w->deltatimer);
 
         Rect viewport = { 0.f, 0.f, width, height };
         ui_update(ui, &viewport);
@@ -1395,6 +1406,22 @@ int main(int argc, char *argv[]) { INIT_TRACE
 
     arena_destroy(&static_arena);
     return 0;
+}
+
+void glfw_callback_window_pos(GLFWwindow *window, int xpos, int ypos) { TRACE
+    (void)window;
+    (void)xpos;
+    (void)ypos;
+    if (w)
+        w->recheck_refresh_rate = true;
+}
+
+void glfw_callback_window_size(GLFWwindow *window, int width, int height) { TRACE
+    (void)window;
+    (void)width;
+    (void)height;
+    if (w)
+        w->recheck_refresh_rate = true;
 }
 
 void glfw_callback_key(GLFWwindow *window, int key, int scan, int action, int mods) { TRACE
