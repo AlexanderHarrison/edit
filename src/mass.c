@@ -362,7 +362,10 @@ void mass_search(Mass *mass) {
 }*/
 
 static int mass_filter_dir(const struct dirent *entry) {
-    return entry->d_type == DT_DIR && entry->d_name[0] != '.';
+    return entry->d_type == DT_DIR
+        && entry->d_name[0] != '.'
+        && strcmp(entry->d_name, "target") != 0
+        && strcmp(entry->d_name, "build") != 0;
 }
 static int mass_filter_file(const struct dirent *entry) {
     return entry->d_type == DT_REG && entry->d_name[0] != '.';
