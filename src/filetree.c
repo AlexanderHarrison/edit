@@ -350,10 +350,13 @@ void filetree_update(Panel *panel) { TRACE
     y += font_height;
 
     // write entry rows
+    bool filter = ft->search_string[0] != 0;
     for (I64 row_i = 0; row_i < ft->row_count; ++row_i) {
         FileTreeRow *row = &ft->rows[row_i];
         
-        F32 x = filetree_v.x + (F32)row->depth * FILETREE_INDENTATION_WIDTH;
+        F32 x = filetree_v.x;
+        if (!filter)
+            x += (F32)row->depth * FILETREE_INDENTATION_WIDTH;
 
         if (row->entry_type == EntryType_Dir) {
             Dir *dir = row->dir;
@@ -369,14 +372,30 @@ void filetree_update(Panel *panel) { TRACE
             );
             y += font_height;
         } else if (row->entry_type == EntryType_File) {
+            Arena *frame_arena = &w->frame_arena;
+            ArenaResetPoint reset = arena_reset_point(frame_arena);
+            U8 *str = frame_arena->head;
+        
+            Dir *parent_dir = row->parent;
+            if (filter && parent_dir) {
+                U8 *dirname = ft->name_buffer + parent_dir->name_offset;
+                U64 dirname_len = my_strlen(dirname);
+                U8 *dst = arena_alloc(frame_arena, dirname_len, 1);
+                memcpy(dst, dirname, dirname_len);
+                *(U8*)arena_alloc(frame_arena, 1, 1) = '/';
+            }
+            arena_copy_string_terminated(frame_arena, row->filename);
+        
             ui_push_string_terminated(
                 ui,
-                row->filename,
+                str,
                 font_atlas,
                 (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
                 x, y, filetree_v.x + filetree_v.w
             );
             y += font_height;
+            
+            arena_reset(frame_arena, &reset);
         } else {
             expect(0);
         }
