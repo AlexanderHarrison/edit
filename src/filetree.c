@@ -38,6 +38,7 @@ typedef struct FileTreeRow {
 enum SearchFlags {
     Search_DistanceMask = 0xFul,
     SearchFlag_CaseSensitive = (1ul << 4ul),
+    SearchFlag_Dir = (1ul << 5ul),
 };
 
 typedef struct FileTree {
@@ -290,6 +291,8 @@ void filetree_update(Panel *panel) { TRACE
                 search_flags |= SearchFlag_CaseSensitive;
             } else if (c == '*') {
                 search_distance++;
+            } else if (c == '/') {
+                search_flags |= SearchFlag_Dir;
             } else {
                 // only these characters are searched against
                 bool lowercase = 'a' <= c && c <= 'z';
@@ -372,30 +375,43 @@ void filetree_update(Panel *panel) { TRACE
             );
             y += font_height;
         } else if (row->entry_type == EntryType_File) {
-            Arena *frame_arena = &w->frame_arena;
-            ArenaResetPoint reset = arena_reset_point(frame_arena);
-            U8 *str = frame_arena->head;
-        
             Dir *parent_dir = row->parent;
-            if (filter && parent_dir) {
+            if (filter && parent_dir && parent_dir->name_offset != 0) {
                 U8 *dirname = ft->name_buffer + parent_dir->name_offset;
                 U64 dirname_len = my_strlen(dirname);
-                U8 *dst = arena_alloc(frame_arena, dirname_len, 1);
-                memcpy(dst, dirname, dirname_len);
-                *(U8*)arena_alloc(frame_arena, 1, 1) = '/';
+                
+                U32 glyph_idx = glyph_lookup_idx(CODE_FONT_SIZE, ' ');
+                GlyphInfo info = font_atlas->glyph_info[glyph_idx];
+                F32 advance_width = info.advance_width;
+                
+                ui_push_string_terminated(
+                    ui,
+                    dirname,
+                    font_atlas,
+                    (RGBA8) COLOUR_DIRECTORY_CLOSED, CODE_FONT_SIZE,
+                    x, y, filetree_v.x + filetree_v.w
+                );
+                x += advance_width * (F32)dirname_len;
+                
+                ui_push_string_terminated(
+                    ui,
+                    (const U8 *)"/",
+                    font_atlas,
+                    (RGBA8) COLOUR_DIRECTORY_CLOSED, CODE_FONT_SIZE,
+                    x, y, filetree_v.x + filetree_v.w
+                );
+                
+                x += advance_width;
             }
-            arena_copy_string_terminated(frame_arena, row->filename);
-        
+            
             ui_push_string_terminated(
                 ui,
-                str,
+                row->filename,
                 font_atlas,
                 (RGBA8) COLOUR_FOREGROUND, CODE_FONT_SIZE,
                 x, y, filetree_v.x + filetree_v.w
             );
             y += font_height;
-            
-            arena_reset(frame_arena, &reset);
         } else {
             expect(0);
         }
@@ -425,17 +441,36 @@ static void filetree_remake_rows_inner(FileTree *ft, Dir *parent, U32 depth) {
     }
 
     U8 *filename = ft->name_buffer + parent->file_names_offset;
-    for (U16 file_i = 0; file_i < parent->file_count; ++file_i) {
-        if (!filter || str_match(filename, ft->search_string, ft->search_flags)) {
+    if (!filter) {
+        for (U16 file_i = 0; file_i < parent->file_count; ++file_i) {
             ft->rows[ft->row_count++] = (FileTreeRow) {
                 .entry_type = EntryType_File,
                 .parent = parent,
                 .filename = filename,
                 .depth = depth,
             };
+            filename += my_strlen(filename) + 1;
         }
-
-        filename += my_strlen(filename) + 1;
+    } else {
+        bool search_dir = (ft->search_flags & SearchFlag_Dir) != 0;
+        for (U16 file_i = 0; file_i < parent->file_count; ++file_i) {
+            U8 *name;
+            if (!search_dir)
+                name = filename;
+            else
+                name = ft->name_buffer + parent->name_offset;
+        
+            if (str_match(name, ft->search_string, ft->search_flags)) {
+                ft->rows[ft->row_count++] = (FileTreeRow) {
+                    .entry_type = EntryType_File,
+                    .parent = parent,
+                    .filename = filename,
+                    .depth = depth,
+                };
+            }
+    
+            filename += my_strlen(filename) + 1;
+        }
     }
 }
 
