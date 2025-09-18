@@ -178,6 +178,9 @@ Panel *editor_create(UI *ui, const U8 *filepath) { TRACE
         .search_matches = arena_alloc(arena, SEARCH_MAX_LENGTH, page_size()),
         .line_lookup = arena_alloc(arena, MAX_LINE_LOOKUP_SIZE, page_size()),
         .syntax_lookup = arena_alloc(arena, MAX_SYNTAX_LOOKUP_SIZE, page_size()),
+        
+        .prev_search_buffer = arena_alloc(arena, PREV_SEARCH_BUFFER_MAX_LENGTH, page_size()),
+        .prev_searches = arena_alloc(arena, MAX_PREV_SEARCH_SIZE, page_size()),
     };
     ed->arena = arena;
     panel->data = ed;
@@ -217,6 +220,83 @@ void editor_on_focus(Panel *ed_panel) {
 
 void editor_on_focus_lost(Panel *ed_panel) {
     ed_panel->dynamic_weight_w = 1.f;
+}
+
+void editor_copy_to_search_buffer(Editor *ed, PrevSearch *prev_search) { TRACE
+    prev_search->search = &ed->prev_search_buffer[ed->prev_search_buffer_length];
+    prev_search->search_length = ed->mode_text_length;
+    memcpy(prev_search->search, ed->mode_text, (U32)ed->mode_text_length);
+    ed->prev_search_buffer_length += ed->mode_text_length;
+    
+    prev_search->replace = &ed->prev_search_buffer[ed->prev_search_buffer_length];
+    prev_search->replace_length = ed->mode_text_alt_length;
+    memcpy(prev_search->replace, ed->mode_text_alt, (U32)ed->mode_text_alt_length);
+    ed->prev_search_buffer_length += ed->mode_text_alt_length;
+}
+
+void editor_copy_from_search_buffer(Editor *ed, PrevSearch *prev_search) { TRACE
+    memcpy(ed->mode_text, prev_search->search, (U32)prev_search->search_length);
+    ed->mode_text_length = prev_search->search_length;
+    memcpy(ed->mode_text_alt, prev_search->replace, (U32)prev_search->replace_length);
+    ed->mode_text_alt_length = prev_search->replace_length;
+}
+
+void editor_process_search_history(Editor *ed) { TRACE
+    U64 special_pressed = w->inputs.key_special_pressed;
+    U64 special_repeating = w->inputs.key_special_repeating;
+    
+    bool set_prev_search = false;
+    
+    if (ed->prev_search_cursor == 0) {
+        PrevSearch *cur_search = &ed->prev_searches[ed->prev_search_count];
+        editor_copy_to_search_buffer(ed, cur_search);
+    }
+    
+    if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_UP))) {
+        if (ed->prev_search_count != 0) {
+            if (ed->prev_search_cursor != ed->prev_search_count) {
+                ed->prev_search_cursor++;
+                set_prev_search = true;
+            }
+        }
+    }
+    
+    if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_DOWN))) {
+        if (ed->prev_search_count != 0) {
+            if (ed->prev_search_cursor != 0) {
+                ed->prev_search_cursor--;
+                set_prev_search = true;
+            }
+        }
+    }
+    
+    if (set_prev_search) {
+        I64 prev_search_idx = ed->prev_search_count - ed->prev_search_cursor; 
+        PrevSearch *prev_search = &ed->prev_searches[prev_search_idx];
+        editor_copy_from_search_buffer(ed, prev_search);
+    }
+}
+
+void editor_search(Editor *ed) { TRACE
+    ed->search_match_count = 0;
+    if (ed->mode_text_length > 0) {
+        I64 start = ed->search_a;
+        I64 end = ed->search_b - ed->mode_text_length;
+        for (I64 a = start; a < end; ++a) {
+            bool matches = true;
+            for (I64 i = 0; i < ed->mode_text_length; ++i) {
+                U8 search_char = ed->mode_text[i];
+                U8 text_char = ed->text[a+i];
+                if (search_char != text_char) {
+                    matches = false; 
+                    break;
+                }
+            }
+
+            if (matches)
+                ed->search_matches[ed->search_match_count++] = a;
+        }
+    }
 }
 
 void editor_update(Panel *panel) { TRACE
@@ -366,7 +446,9 @@ void editor_update(Panel *panel) { TRACE
 
             if (is(pressed, key_mask(GLFW_KEY_SLASH))) {
                 ed->mode = Mode_Search;
+                ed->prev_search_cursor = 0;
                 ed->mode_text_length = 0;
+                ed->mode_text_alt_length = 0;
                 ed->search_match_count = 0;
                 ed->search_cursor = 0;
                 
@@ -587,28 +669,10 @@ void editor_update(Panel *panel) { TRACE
             
             if (ctrl && is(pressed, key_mask(GLFW_KEY_R))) {
                 ed->mode = Mode_Replace;
-                ed->mode_text_alt_length = 0;
             }
-
-            ed->search_match_count = 0;
-            if (ed->mode_text_length > 0) {
-                I64 start = ed->search_a;
-                I64 end = ed->search_b - ed->mode_text_length;
-                for (I64 a = start; a < end; ++a) {
-                    bool matches = true;
-                    for (I64 i = 0; i < ed->mode_text_length; ++i) {
-                        U8 search_char = ed->mode_text[i];
-                        U8 text_char = ed->text[a+i];
-                        if (search_char != text_char) {
-                            matches = false; 
-                            break;
-                        }
-                    }
-
-                    if (matches)
-                        ed->search_matches[ed->search_match_count++] = a;
-                }
-            }
+            
+            editor_process_search_history(ed);
+            editor_search(ed);
 
             if (ctrl && is(pressed | repeating, key_mask(GLFW_KEY_J)))
                 ed->search_cursor++;
@@ -628,12 +692,16 @@ void editor_update(Panel *panel) { TRACE
                 ed->selection_group = Group_Line;
                 ed->mode = Mode_Normal;
             }
-
+            
             if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) { 
                 if (ed->search_match_count > 0) {
                     I64 shown_match = ed->search_matches[ed->search_cursor];
                     editor_set_selection(ed, shown_match, shown_match + ed->mode_text_length);
                 }
+                
+                PrevSearch *prev_search = &ed->prev_searches[ed->prev_search_count++];
+                editor_copy_to_search_buffer(ed, prev_search);
+                
                 ed->mode = Mode_Normal;
             }
 
@@ -651,6 +719,9 @@ void editor_update(Panel *panel) { TRACE
                 ed->mode_text_alt[ed->mode_text_alt_length++] = codepoint_as_char;
             }
             
+            editor_process_search_history(ed);
+            editor_search(ed);
+
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
                 if (ed->mode_text_alt_length > 0)
                     ed->mode_text_alt_length--;
@@ -670,6 +741,9 @@ void editor_update(Panel *panel) { TRACE
                     editor_text_remove(ed, match_start, match_end);
                     editor_text_insert(ed, match_start, ed->mode_text_alt, ed->mode_text_alt_length);
                 }
+
+                PrevSearch *prev_search = &ed->prev_searches[ed->prev_search_count++];
+                editor_copy_to_search_buffer(ed, prev_search);
                 
                 ed->selection_group = Group_Line;
                 ed->mode = Mode_Normal;

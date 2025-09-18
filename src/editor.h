@@ -77,6 +77,13 @@ typedef struct SyntaxRange {
     RGBA8 colour;
 } SyntaxRange;
 
+typedef struct PrevSearch {
+    char *search;
+    I64 search_length;
+    char *replace;
+    I64 replace_length;
+} PrevSearch;
+
 typedef struct Editor {
     Arena *arena;
     UndoStack undo_stack;
@@ -115,6 +122,12 @@ typedef struct Editor {
     I64 *search_matches;
     I64 search_match_count;
     I64 search_cursor;
+
+    char *prev_search_buffer;
+    I64 prev_search_buffer_length;
+    PrevSearch *prev_searches;
+    I64 prev_search_count;
+    I64 prev_search_cursor;
 
     // animation values - do not set these directly
     F64 scroll_y_visual;
