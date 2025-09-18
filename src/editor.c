@@ -639,7 +639,7 @@ void editor_update(Panel *panel) { TRACE
 
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
                 if (ctrl) {
-                    Range word = editor_group(ed, Group_SubWord, ed->insert_cursor);
+                    Range word = editor_group(ed, Group_SubWord, ed->insert_cursor-1);
                     editor_text_remove(ed, word.start, ed->insert_cursor);
                     ed->insert_cursor = word.start;
                 } else {
