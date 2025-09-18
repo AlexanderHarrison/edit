@@ -299,6 +299,46 @@ void editor_search(Editor *ed) { TRACE
     }
 }
 
+void editor_ctrl_backspace(U8 *buf, I64 *length) {
+    I64 idx = *length;
+    U8 c;
+    
+    while (idx > 0) {
+        c = buf[idx - 1];
+        if (!char_whitespace(c) && c != '_')
+            break;
+        idx--;
+    }
+    
+    if (idx > 0) {
+        c = buf[idx - 1];
+        if (char_subword_like(c)) {
+            while (idx > 0) {
+                c = buf[idx - 1];
+                if (!char_subword_like(c))
+                    break;
+                idx--;
+            }
+        } else if (char_mathematic(c)) {
+            while (idx > 0) {
+                c = buf[idx - 1];
+                if (!char_mathematic(c))
+                    break;
+                idx--;
+            }
+        } else {
+            while (idx > 0) {
+                c = buf[idx - 1];
+                if (!char_none(c))
+                    break;
+                idx--;
+            }
+        }
+    }
+    
+    *length = idx;
+}
+
 void editor_update(Panel *panel) { TRACE
     Editor *ed = panel->data;
     Rect *viewport = &panel->viewport;
@@ -663,8 +703,12 @@ void editor_update(Panel *panel) { TRACE
             }
 
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
-                if (ed->mode_text_length > 0)
-                    ed->mode_text_length--;
+                if (!ctrl) {
+                    if (ed->mode_text_length > 0)
+                        ed->mode_text_length--;
+                } else {
+                    editor_ctrl_backspace(ed->mode_text, &ed->mode_text_length);
+                }
             }
             
             if (ctrl && is(pressed, key_mask(GLFW_KEY_R))) {
@@ -723,8 +767,12 @@ void editor_update(Panel *panel) { TRACE
             editor_search(ed);
 
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
-                if (ed->mode_text_alt_length > 0)
-                    ed->mode_text_alt_length--;
+                if (!ctrl) {
+                    if (ed->mode_text_alt_length > 0)
+                        ed->mode_text_alt_length--;
+                } else {
+                    editor_ctrl_backspace(ed->mode_text_alt, &ed->mode_text_alt_length);
+                }
             }
             
             bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
@@ -1053,13 +1101,16 @@ void editor_update(Panel *panel) { TRACE
 
         F32 y = mode_info_v.y;
         F32 x = mode_info_v.x + MODE_INFO_PADDING;
-        ui_push_string_terminated(
+        x += ui_push_string_terminated(
             ui,
             mode_info_text,
             font_atlas,
             colour, MODE_FONT_SIZE,
             x, y, mode_info_v.x + mode_info_v.w
         );
+        
+        F32 cursor_x = x;
+        F32 cursor_y = y;
         
         // also draw replacement text for replace mode
         if (ed->mode == Mode_Replace) {
@@ -1076,14 +1127,24 @@ void editor_update(Panel *panel) { TRACE
             F32 space_size = font_atlas->glyph_info[space_idx].advance_width;
             y = mode_info_v.y;
             x = mode_info_v.x + MODE_INFO_PADDING + space_size * 6.f;
-            ui_push_string(
+            x += ui_push_string(
                 ui,
                 ed->mode_text_alt, (U64)ed->mode_text_alt_length,
                 font_atlas,
                 colour, MODE_FONT_SIZE,
                 x, y, mode_info_v.x + mode_info_v.w
             );
+            
+            cursor_x = x;
+            cursor_y = y;
         }
+        
+        *ui_push_glyph(ui) = (Glyph) {
+            .x = cursor_x + 1.f,
+            .y = cursor_y + 2.f,
+            .glyph_idx = special_glyph_rect(2, (U32)mode_info_v.h - 2),
+            .colour = colour,
+        };
     }
 
     // draw status    
