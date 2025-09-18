@@ -297,11 +297,12 @@ void filetree_update(Panel *panel) { TRACE
                 // only these characters are searched against
                 bool lowercase = 'a' <= c && c <= 'z';
                 bool uppercase = 'A' <= c && c <= 'Z';
+                bool numeric = '0' <= c && c <= '9';
                 bool special = c == ' ' || c == '\'' || c == '"' || c == '_' || c == '.';
 
                 if (uppercase)
                     search_flags |= SearchFlag_CaseSensitive;
-                if (uppercase || lowercase || special)
+                if (uppercase || lowercase || numeric || special)
                     ft->search_string[normal_count++] = c;
             }
         }
