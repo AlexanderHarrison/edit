@@ -701,6 +701,15 @@ void editor_update(Panel *panel) { TRACE
                 U8 codepoint_as_char = (U8)codepoint;
                 ed->mode_text[ed->mode_text_length++] = codepoint_as_char;
             }
+            
+            if (ctrl && is(pressed, key_mask(GLFW_KEY_V))) {
+                const U8 *text = (const U8*) glfwGetClipboardString(NULL);
+                if (text != NULL) {
+                    U32 len = my_strlen(text);
+                    memcpy(&ed->mode_text[ed->mode_text_length], text, len);
+                    ed->mode_text_length += len;
+                }
+            }
 
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
                 if (!ctrl) {
@@ -763,8 +772,14 @@ void editor_update(Panel *panel) { TRACE
                 ed->mode_text_alt[ed->mode_text_alt_length++] = codepoint_as_char;
             }
             
-            editor_process_search_history(ed);
-            editor_search(ed);
+            if (ctrl && is(pressed, key_mask(GLFW_KEY_V))) {
+                const U8 *text = (const U8*) glfwGetClipboardString(NULL);
+                if (text != NULL) {
+                    U32 len = my_strlen(text);
+                    memcpy(&ed->mode_text_alt[ed->mode_text_alt_length], text, len);
+                    ed->mode_text_alt_length += len;
+                }
+            }
 
             if (is(special_pressed | special_repeating, special_mask(GLFW_KEY_BACKSPACE))) {
                 if (!ctrl) {
@@ -775,6 +790,9 @@ void editor_update(Panel *panel) { TRACE
                 }
             }
             
+            editor_process_search_history(ed);
+            editor_search(ed);
+
             bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
             bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
             if (esc || caps)
