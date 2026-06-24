@@ -24,20 +24,20 @@ install: release
 
 build: build/edit
 
-build/main_frag.spv: shaders/main_frag.glsl
+build/main_frag.h: shaders/main_frag.glsl
 	@glslc -fshader-stage=frag shaders/main_frag.glsl -O -o build/main_frag.spv
 	@xxd -i build/main_frag.spv build/main_frag.h
-build/main_vert.spv: shaders/main_vert.glsl
+build/main_vert.h: shaders/main_vert.glsl
 	@glslc -fshader-stage=vert shaders/main_vert.glsl -O -o build/main_vert.spv
 	@xxd -i build/main_vert.spv build/main_vert.h
 
-release: build/main_vert.spv build/main_frag.spv src/*
+release: build/main_vert.h build/main_frag.h src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(RELEASE_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
 
-build/edit: build/main_vert.spv build/main_frag.spv src/*
+build/edit: build/main_vert.h build/main_frag.h src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
 
-san: build/main_vert.spv build/main_frag.spv src/*
+san: build/main_vert.h build/main_frag.h src/*
 	@gcc $(WARN_FLAGS) $(PATH_FLAGS) $(SAN_FLAGS) $(BASE_FLAGS) $(FILES) $(LINK_FLAGS) -o$(OUT)
 
 clean:
