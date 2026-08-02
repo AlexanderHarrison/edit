@@ -85,10 +85,14 @@ void ui_update(UI *ui, Rect *viewport) { TRACE
 
     if (ctrl && is(pressed, key_mask(GLFW_KEY_W))) {
         if (ui->focused) {
+            Panel *panel;
             if (!is(modifiers, GLFW_MOD_SHIFT))
-                panel_focus(panel_next(ui->focused));
+                panel = panel_next(ui->focused);
             else 
-                panel_focus(panel_prev(ui->focused));
+                panel = panel_prev(ui->focused);
+
+            if (panel)
+                panel_focus_queued(panel);
         }
     }
 
