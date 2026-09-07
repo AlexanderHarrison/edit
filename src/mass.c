@@ -53,7 +53,7 @@ void mass_update(Panel *panel) { TRACE
                 U32 cursor = mass->search_len;
                 if (write_inputs(mass->search, &mass->search_len, &cursor))
                     mass_search(mass);
-                    
+
                 bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
                 bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
                 if (esc || caps)
@@ -62,6 +62,15 @@ void mass_update(Panel *panel) { TRACE
                 if (ctrl && is(pressed, key_mask(GLFW_KEY_R)))
                     mass->mode = MassMode_EditReplace;
                 
+                if (ctrl && is(pressed, key_mask(GLFW_KEY_V))) {
+                    const U8 *text = (const U8*) glfwGetClipboardString(NULL);
+                    if (text != NULL) {
+                        U32 len = my_strlen(text);
+                        memcpy(&mass->search[mass->search_len], text, len);
+                        mass->search_len += len;
+                    }
+                }
+    
                 break;
             }
             case MassMode_EditReplace: {
@@ -76,6 +85,15 @@ void mass_update(Panel *panel) { TRACE
                 if (is(special_pressed, special_mask(GLFW_KEY_ENTER))) {
                     mass_execute(mass);
                     panel_destroy_queued(panel);
+                }
+
+                if (ctrl && is(pressed, key_mask(GLFW_KEY_V))) {
+                    const U8 *text = (const U8*) glfwGetClipboardString(NULL);
+                    if (text != NULL) {
+                        U32 len = my_strlen(text);
+                        memcpy(&mass->replace[mass->replace_len], text, len);
+                        mass->replace_len += len;
+                    }
                 }
                 
                 break;
