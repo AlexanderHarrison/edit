@@ -50,9 +50,11 @@ void mass_update(Panel *panel) { TRACE
         
         switch (mass->mode) {
             case MassMode_EditSearch: {
+                bool research = false;
+            
                 U32 cursor = mass->search_len;
                 if (write_inputs(mass->search, &mass->search_len, &cursor))
-                    mass_search(mass);
+                    research = true;
 
                 bool esc = is(special_pressed, special_mask(GLFW_KEY_ESCAPE));
                 bool caps = is(special_pressed, special_mask(GLFW_KEY_CAPS_LOCK));
@@ -68,8 +70,12 @@ void mass_update(Panel *panel) { TRACE
                         U32 len = my_strlen(text);
                         memcpy(&mass->search[mass->search_len], text, len);
                         mass->search_len += len;
+                        research = true;
                     }
                 }
+                
+                if (research)
+                    mass_search(mass);
     
                 break;
             }

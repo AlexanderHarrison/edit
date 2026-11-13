@@ -636,6 +636,29 @@ void window_create(Arena *arena) { TRACE
         .char_events = ARENA_ALLOC_ARRAY(arena, CharEvent, EVENTS_MAX),
         .key_events = ARENA_ALLOC_ARRAY(arena, KeyEvent, EVENTS_MAX),
     };
+    
+    // BACKGROUND COLOUR --------------------------------------------------
+    
+    RGBAf background;
+    {
+        char buf[512] = {0};
+        (U8*)getcwd(buf, sizeof(buf));
+        U32 seed = 0;
+        for (U32 i = 0; i < sizeof(buf)/4; i += 4) {
+            U32 m; memcpy(&m, buf + i, 4);
+            seed += m;
+        }
+        srandom(seed);
+        long rng = random();
+        F32 br = (float)((rng >> 0) & 0xFF);
+        F32 bg = (float)((rng >> 8) & 0xFF);
+        F32 bb = (float)((rng >> 16) & 0xFF);
+        F32 sum = (br + bg + bb) * 20.f;
+        br /= sum;
+        bg /= sum * 2.f;
+        bb /= sum * 0.5f;
+        background = (RGBAf) {br, bg, bb, 1.f};
+    }
 
     // CREATE W -------------------------------------------------------------------------------
 
@@ -645,7 +668,8 @@ void window_create(Arena *arena) { TRACE
         instance, phy_device, phy_mem_props,
         device, queue,
         cmd_pool, cmd_buffer,
-        surface, sc_arena, sc,
+        surface, background,
+        sc_arena, sc,
         image_available, render_finished, in_flight,
         pass, pl_layout, pl,
         descriptor_pool, descriptor_set_layout_glyphs,
@@ -1293,12 +1317,11 @@ int main(int argc, char *argv[]) { INIT_TRACE
         // START RENDER ----------------------------------------------------------
 
         SCOPE_TRACE {
-            RGBA8 background = COLOUR_BACKGROUND;
             VkClearValue clear_colour = { .color = { .float32 = {
-                (float)background.r / 255.f,
-                (float)background.g / 255.f,
-                (float)background.b / 255.f,
-                (float)background.a / 255.f,
+                w->background.r,
+                w->background.g,
+                w->background.b,
+                w->background.a,
             }}};
             VkRenderPassBeginInfo pass_info = {
                 .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,

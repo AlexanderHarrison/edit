@@ -69,7 +69,6 @@ bool write_inputs(U8 *text, U32 *text_len, U32 *cursor);
 #define COLOUR_BLUE     { 100, 100, 230, 255 }
 #define COLOUR_PURPLE   { 150, 50, 110, 255 }
 
-#define COLOUR_BACKGROUND           { 4, 4, 4, 255 }
 #define COLOUR_FOREGROUND           { 175, 170, 165, 255 }
 #define COLOUR_MODE_INFO            { 10, 10, 10, 200 }
 #define COLOUR_FILE_INFO            { 10, 10, 10, 255 }
@@ -258,6 +257,10 @@ typedef struct RGBA8 {
     U8 r, g, b, a;
 } RGBA8;
 
+typedef struct RGBAf {
+    F32 r, g, b, a;
+} RGBAf;
+
 typedef struct StaticDataUniform {
     F32 viewport_size[2];
 } StaticDataUniform;
@@ -319,6 +322,7 @@ typedef struct W {
     VkCommandBuffer cmd_buffer;
 
     VkSurfaceKHR surface;
+    RGBAf background;
 
     Arena sc_arena;
     Swapchain *sc;
