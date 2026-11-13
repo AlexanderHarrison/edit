@@ -676,8 +676,8 @@ void window_create(Arena *arena) { TRACE
         static_data_uniform, static_data_uniform_buffer, static_data_uniform_buffer_memory,
 
         inputs, frame_arena, staging, 
-        false, false, false, 60.f, 0.2f,
-        
+        false, false, false, false, 60.f, 0.2f,
+
         timer_start(), 0.f,
     };
 
@@ -1073,6 +1073,8 @@ int main(int argc, char *argv[]) { INIT_TRACE
                 );
             }
         }
+
+        w->window_focused = glfwGetWindowAttrib(w->window, GLFW_FOCUSED) != 0;
         
         if (w->recheck_refresh_rate) {
             w->recheck_refresh_rate = false;

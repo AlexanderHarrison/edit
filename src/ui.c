@@ -281,7 +281,7 @@ void panel_update(Panel *panel) { TRACE
     if (panel->update_fn)
         (panel->update_fn)(panel);
 
-    if (panel->flags & PanelFlag_Focused) {
+    if (w->window_focused && (panel->flags & PanelFlag_Focused)) {
         *ui_push_glyph(panel->ui) = (Glyph) {
             .x = panel->viewport.x,
             .y = panel->viewport.y + panel->viewport.h - BAR_SIZE,

@@ -351,6 +351,7 @@ typedef struct W {
     bool should_close;
     bool force_update;
     bool recheck_refresh_rate;
+    bool window_focused;
     F32 refresh_rate;
     F32 exp_factor;
     
